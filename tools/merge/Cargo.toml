@@ -3,6 +3,9 @@ name = "obsidian-merge"
 version = "0.1.0"
 edition = "2024"
 
+# Builds standalone, outside the engine workspace at the repo root.
+[workspace]
+
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
