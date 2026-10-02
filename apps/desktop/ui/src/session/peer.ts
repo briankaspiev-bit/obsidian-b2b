@@ -2,7 +2,7 @@
 // that turn real measurements into UI state. Kept free of Tauri so it is
 // unit-tested (peer.test.ts).
 
-import type { LinkStatus, NetworkResult } from './bridge';
+import type { LinkStatus, LiveStatus, NetworkResult } from './bridge';
 import type { CheckStepId, CheckStepStatus, Diagnostics, LinkState, NetworkQuality } from './types';
 
 /** Coordination messages. Both apps run the same reducers and apply each other's moves. */
@@ -134,6 +134,46 @@ export function initialRealLink(): LinkState {
       clockDriftPpm: 0,
       path: 'direct',
       codec: 'No audio yet',
+    },
+  };
+}
+
+/** Linear peak → dBFS. */
+export function peakToDb(peak: number): number {
+  return peak > 1e-6 ? 20 * Math.log10(peak) : -Infinity;
+}
+
+/** 5 ms frames: the engine's "last 10 s" counters are out of 2000. */
+const FRAMES_PER_10S = 2000;
+
+/** The Live Session's link panel from the engine's live status. */
+export function linkStateFromLive(st: LiveStatus, prev: LinkState): LinkState {
+  const remote = st.phase === 'partner left' ? 'left' : st.phase === 'partner not reachable' ? 'reconnecting' : 'connected';
+  const settling = st.phase !== 'live';
+  const concealedPct = (100 * st.concealed_10s) / FRAMES_PER_10S;
+  const rtt = st.rtt_ms ?? prev.diagnostics.roundTripMs;
+  const network: NetworkQuality =
+    remote !== 'connected' || settling
+      ? 'recovering'
+      : concealedPct > 2
+        ? 'poor'
+        : concealedPct > 0.5
+          ? 'fair'
+          : st.recovered_10s > 20
+            ? 'good'
+            : 'excellent';
+  return {
+    remote,
+    network,
+    boothSync: remote === 'connected' ? (settling ? 'adjusting' : 'stable') : 'lost',
+    recording: settling && remote === 'connected' ? prev.recording : 'on',
+    diagnostics: {
+      ...prev.diagnostics,
+      roundTripMs: Math.round(rtt),
+      oneWayMs: Math.round(st.booth_delay_ms ?? rtt / 2),
+      packetLossPct: +concealedPct.toFixed(2),
+      bufferMs: Math.round(st.margin_ms ?? 0),
+      codec: 'Opus 256 kbps',
     },
   };
 }

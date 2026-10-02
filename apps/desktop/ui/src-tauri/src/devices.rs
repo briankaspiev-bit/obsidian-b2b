@@ -1,17 +1,19 @@
-//! Audio devices through cpal (WASAPI on Windows) and a level meter on the
-//! chosen input, so Booth Check's YOUR SEND meter shows the real mixer.
-//!
-//! The engine thread owns device I/O for the session itself; this is only
-//! enumeration and metering before the session starts.
+//! Sound cards, through the engine's own audio layer (`obsidian-audio-io`), so
+//! the input you meter in Booth Check is the very stream the live session
+//! sends: it is opened once and handed over.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 
-use anyhow::{anyhow, Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use anyhow::{anyhow, Result};
+use obsidian_audio_io::{device, AudioFifo};
 use serde::Serialize;
+
+/// The "What you send" choice that captures everything the laptop plays
+/// (DJ software, a browser...) except Obsidian itself. Windows only.
+pub const SYSTEM_AUDIO_ID: &str = "system-audio";
 
 /// Matches the UI's AudioDevice.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -27,83 +29,40 @@ pub struct DeviceList {
     pub outputs: Vec<AudioDevice>,
 }
 
-fn describe(dev: &cpal::Device, input: bool, is_default: bool) -> Option<AudioDevice> {
-    let name = dev.name().ok()?;
-    let cfg = if input { dev.default_input_config() } else { dev.default_output_config() }.ok()?;
-    let mut detail = format!(
-        "{} ch · {} kHz",
-        cfg.channels(),
-        f64::from(cfg.sample_rate().0) / 1000.0
-    );
-    if is_default {
-        detail.push_str(" · system default");
-    }
-    // cpal has no stable device id; the name is what WASAPI shows and is
-    // unique enough per machine for a picker.
-    Some(AudioDevice { id: name.clone(), label: name, detail })
-}
-
-/// Default device first, so the UI's "first device" default is the system one.
-pub fn list() -> DeviceList {
-    let host = cpal::default_host();
-    let def_in = host.default_input_device().and_then(|d| d.name().ok());
-    let def_out = host.default_output_device().and_then(|d| d.name().ok());
-    let mut out = DeviceList::default();
-    if let Ok(devs) = host.input_devices() {
-        out.inputs = devs
-            .filter_map(|d| {
-                let is_def = d.name().ok() == def_in;
-                describe(&d, true, is_def)
-            })
-            .collect();
-    }
-    if let Ok(devs) = host.output_devices() {
-        out.outputs = devs
-            .filter_map(|d| {
-                let is_def = d.name().ok() == def_out;
-                describe(&d, false, is_def)
-            })
-            .collect();
-    }
-    out.inputs.sort_by_key(|d| !d.detail.ends_with("system default"));
-    out.outputs.sort_by_key(|d| !d.detail.ends_with("system default"));
-    out
-}
-
-/// Peak level per channel since the last read, as linear amplitude bits.
-#[derive(Default)]
-pub struct Peaks {
-    left: AtomicU32,
-    right: AtomicU32,
-}
-
-impl Peaks {
-    fn raise(slot: &AtomicU32, v: f32) {
-        let mut cur = slot.load(Ordering::Relaxed);
-        while v > f32::from_bits(cur) {
-            match slot.compare_exchange_weak(cur, v.to_bits(), Ordering::Relaxed, Ordering::Relaxed) {
-                Ok(_) => break,
-                Err(now) => cur = now,
+fn entries(names: Vec<String>, default: Option<String>) -> Vec<AudioDevice> {
+    let mut v: Vec<AudioDevice> = names
+        .into_iter()
+        .map(|n| {
+            let is_default = Some(&n) == default.as_ref();
+            AudioDevice {
+                id: n.clone(),
+                label: n,
+                detail: if is_default { "System default".into() } else { String::new() },
             }
-        }
-    }
+        })
+        .collect();
+    // Default first, so the UI's "first device" default is the system one.
+    v.sort_by_key(|d| d.detail.is_empty());
+    v
+}
 
-    /// dBFS per channel since the last call; -inf is silence.
-    pub fn take_dbfs(&self) -> (f32, f32) {
-        let l = f32::from_bits(self.left.swap(0, Ordering::Relaxed));
-        let r = f32::from_bits(self.right.swap(0, Ordering::Relaxed));
-        (to_dbfs(l), to_dbfs(r))
+pub fn list() -> DeviceList {
+    let mut out = DeviceList::default();
+    if let Ok(d) = device::list_devices() {
+        out.inputs = entries(d.inputs, d.default_input);
+        out.outputs = entries(d.outputs, d.default_output);
     }
-
-    fn feed(&self, frames: impl Iterator<Item = (f32, f32)>) {
-        let (mut l, mut r) = (0f32, 0f32);
-        for (a, b) in frames {
-            l = l.max(a.abs());
-            r = r.max(b.abs());
-        }
-        Self::raise(&self.left, l);
-        Self::raise(&self.right, r);
+    if cfg!(windows) {
+        out.inputs.insert(
+            0,
+            AudioDevice {
+                id: SYSTEM_AUDIO_ID.into(),
+                label: "Everything this laptop plays".into(),
+                detail: "DJ software, music apps".into(),
+            },
+        );
     }
+    out
 }
 
 pub fn to_dbfs(amp: f32) -> f32 {
@@ -114,84 +73,94 @@ pub fn to_dbfs(amp: f32) -> f32 {
     }
 }
 
-/// A running input meter. Dropping it closes the device.
-pub struct InputMeter {
-    pub peaks: Arc<Peaks>,
-    stop: Option<mpsc::Sender<()>>,
+/// An open input. Its stream lives on a thread of its own (audio streams are
+/// not `Send` on every platform) until this is dropped.
+pub struct Capture {
+    pub fifo: Arc<AudioFifo>,
+    pub rate: u32,
+    peak: Peak,
+    _stop: mpsc::Sender<()>,
 }
 
-impl Drop for InputMeter {
-    fn drop(&mut self) {
-        self.stop.take();
+/// Where the input's latest peak (× 1e6) is kept.
+enum Peak {
+    Device(Arc<device::StreamStats>),
+    #[cfg_attr(not(windows), allow(dead_code))]
+    System(Arc<AtomicU64>),
+}
+
+impl Capture {
+    /// Peak of the latest audio callback, in dBFS.
+    pub fn level_dbfs(&self) -> f32 {
+        let micro = match &self.peak {
+            Peak::Device(s) => s.peak_micro.load(Ordering::Relaxed),
+            Peak::System(p) => p.load(Ordering::Relaxed),
+        };
+        to_dbfs(micro as f32 / 1e6)
     }
 }
 
-fn find_input(id: &str) -> Result<cpal::Device> {
-    let host = cpal::default_host();
-    host.input_devices()?
-        .find(|d| d.name().map(|n| n == id).unwrap_or(false))
-        .ok_or_else(|| anyhow!("Input \"{id}\" is not connected"))
+/// Headphones: the engine pushes 48 kHz blocks into `sink`.
+pub struct Playback {
+    pub sink: Arc<AudioFifo>,
+    _stop: mpsc::Sender<()>,
 }
 
-/// Open `id` and meter it. Channels 1-2 are the stereo pair (a mono input is
-/// shown on both sides).
-pub fn meter_input(id: &str) -> Result<InputMeter> {
-    let id = id.to_owned();
-    let peaks = Arc::new(Peaks::default());
+/// Runs `open` on its own thread, keeps what it returns alive there until the
+/// returned sender is dropped, and hands back the shareable parts.
+fn hold<T, K: 'static>(name: &str, open: impl FnOnce() -> Result<(K, T)> + Send + 'static) -> Result<(T, mpsc::Sender<()>)>
+where
+    T: Send + 'static,
+{
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let (ready_tx, ready_rx) = mpsc::channel::<Result<()>>();
-    let p = peaks.clone();
-    // cpal streams are not Send on every platform, so one thread owns it.
-    thread::Builder::new().name("input-meter".into()).spawn(move || {
-        let stream = (|| -> Result<cpal::Stream> {
-            let dev = find_input(&id)?;
-            let cfg = dev.default_input_config().context("reading the input format")?;
-            let ch = usize::from(cfg.channels()).max(1);
-            let err = |e| eprintln!("input meter: {e}");
-            let s = match cfg.sample_format() {
-                cpal::SampleFormat::F32 => dev.build_input_stream(
-                    &cfg.into(),
-                    move |d: &[f32], _: &_| p.feed(d.chunks(ch).map(|f| (f[0], *f.get(1).unwrap_or(&f[0])))),
-                    err,
-                    None,
-                ),
-                cpal::SampleFormat::I16 => dev.build_input_stream(
-                    &cfg.into(),
-                    move |d: &[i16], _: &_| {
-                        let s = |v: i16| f32::from(v) / 32768.0;
-                        p.feed(d.chunks(ch).map(|f| (s(f[0]), s(*f.get(1).unwrap_or(&f[0])))))
-                    },
-                    err,
-                    None,
-                ),
-                cpal::SampleFormat::I32 => dev.build_input_stream(
-                    &cfg.into(),
-                    move |d: &[i32], _: &_| {
-                        let s = |v: i32| v as f32 / 2_147_483_648.0;
-                        p.feed(d.chunks(ch).map(|f| (s(f[0]), s(*f.get(1).unwrap_or(&f[0])))))
-                    },
-                    err,
-                    None,
-                ),
-                other => return Err(anyhow!("Unsupported input format {other:?}")),
-            }?;
-            s.play()?;
-            Ok(s)
-        })();
-        match stream {
-            Ok(s) => {
-                let _ = ready_tx.send(Ok(()));
-                // Blocks until the meter is dropped.
-                let _ = stop_rx.recv();
-                drop(s);
-            }
-            Err(e) => {
-                let _ = ready_tx.send(Err(e));
-            }
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<T>>();
+    thread::Builder::new().name(name.into()).spawn(move || match open() {
+        Ok((keep, parts)) => {
+            let _ = ready_tx.send(Ok(parts));
+            let _ = stop_rx.recv(); // blocks until the owner drops the sender
+            drop(keep);
+        }
+        Err(e) => {
+            let _ = ready_tx.send(Err(e));
         }
     })?;
-    ready_rx.recv().map_err(|_| anyhow!("input meter thread died"))??;
-    Ok(InputMeter { peaks, stop: Some(stop_tx) })
+    let parts = ready_rx.recv().map_err(|_| anyhow!("{name} thread died"))??;
+    Ok((parts, stop_tx))
+}
+
+/// Opens `id` (a device name, or [`SYSTEM_AUDIO_ID`]) into a fresh FIFO.
+pub fn open_input(id: &str) -> Result<Capture> {
+    let id = id.to_owned();
+    let fifo = Arc::new(AudioFifo::new(96_000));
+    let f = fifo.clone();
+    let ((rate, peak), stop) = hold("capture", move || -> Result<(Box<dyn std::any::Any>, (u32, Peak))> {
+        if id == SYSTEM_AUDIO_ID {
+            #[cfg(windows)]
+            {
+                let s = obsidian_audio_io::winloop::SystemCapture::start(f)?;
+                let peak = Peak::System(s.peak_micro.clone());
+                return Ok((Box::new(s), (48_000, peak)));
+            }
+            #[cfg(not(windows))]
+            return Err(anyhow!("Capturing the laptop's own audio needs Windows."));
+        }
+        let s = device::start_input(Some(&id), f)?;
+        let parts = (s.rate, Peak::Device(s.stats.clone()));
+        Ok((Box::new(s), parts))
+    })?;
+    Ok(Capture { fifo, rate, peak, _stop: stop })
+}
+
+/// Opens headphones `id` with a small FIFO for the engine to fill.
+pub fn open_output(id: Option<&str>, target_ms: f64) -> Result<Playback> {
+    let id = id.map(str::to_owned);
+    let sink = Arc::new(AudioFifo::new(48_000));
+    let s2 = sink.clone();
+    let ((), stop) = hold("playback", move || -> Result<(Box<dyn std::any::Any>, ())> {
+        let s = device::start_output(id.as_deref(), s2, target_ms, 0)?;
+        Ok((Box::new(s), ()))
+    })?;
+    Ok(Playback { sink, _stop: stop })
 }
 
 #[cfg(test)]
@@ -199,14 +168,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn peaks_hold_until_read() {
-        let p = Peaks::default();
-        p.feed([(0.5, -0.25), (0.1, 0.1)].into_iter());
-        p.feed([(0.05, 0.0)].into_iter());
-        let (l, r) = p.take_dbfs();
-        assert!((l - -6.02).abs() < 0.05, "{l}");
-        assert!((r - -12.04).abs() < 0.05, "{r}");
-        assert_eq!(p.take_dbfs(), (f32::NEG_INFINITY, f32::NEG_INFINITY));
+    fn dbfs() {
+        assert!((to_dbfs(0.5) - -6.02).abs() < 0.05);
+        assert_eq!(to_dbfs(0.0), f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn default_device_comes_first() {
+        let v = entries(vec!["A".into(), "B".into()], Some("B".into()));
+        assert_eq!(v[0].id, "B");
+        assert_eq!(v[0].detail, "System default");
     }
 
     #[test]

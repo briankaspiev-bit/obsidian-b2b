@@ -15,6 +15,11 @@ Rust side (`src-tauri/src/lib.rs`) only through these. Types are in
 | `join_room` | `code`, `name` | `{ code, peerName, isHost, relay }` or a plain-language error |
 | `leave_room` | | says goodbye to the other booth and the server |
 | `send_control` | `json` (≤1200 bytes) | sent to the other app as `peer-control` |
+| `select_output` | `id` | headphones for the set |
+| `start_live` | `startOnAir` | the engine's live session takes the socket, the metered input and the headphones |
+| `live_take_over` | | TAKE OVER, through the engine |
+| `live_set_fader` / `live_set_partner_volume` | `value` (0–1 / 0–2) | |
+| `stop_live` | | ends the set; the folder its recordings went to |
 | `run_network_test` | `seconds` | `{ pingsSent, pongsReceived, lossPct, rttMs, rttMinMs, jitterMs, clockOffsetMs, reached }` |
 
 ## Events
@@ -24,7 +29,8 @@ Rust side (`src-tauri/src/lib.rs`) only through these. Types are in
 | `room-event` | `{ kind: "paired", code, peerName, isHost, relay }` or `{ kind: "error", message }` |
 | `peer-control` | the JSON string the other app sent |
 | `link-status` | `{ state: "connected" \| "reconnecting" \| "left", rttMs, jitterMs, lossPct, relay }`, every 500 ms once the other booth was heard |
-| `local-level` / `remote-level` | `{ left, right }` in dBFS, `null` = silence |
+| `local-level` / `remote-level` | `{ left, right }` in dBFS, `null` = silence (before the set) |
+| `live-status` | `obsidian_live::LiveStatus` (snake_case), about 15 times a second during the set |
 
 ## On the wire
 
@@ -41,5 +47,8 @@ Peer messages (`src/session/peer.ts`): `hello {name, city}`,
 `emergencyTakeOver`, `end`, `leave`. Both apps run the same reducers and
 apply the other's moves as the remote DJ's; both run the handoff timer.
 
-When the engine's live device mode lands it takes the socket, and these
-messages move into its protocol.
+At the end of the countdown the link steps aside without a goodbye
+(`BoothLink::hand_over`) and `obsidian_live::run_live` takes the same
+socket. From then on the engine's own `State` packet carries who is on air;
+the screen follows `live-status` (`on_air` / `partner_on_air`), and TAKE OVER
+is `live_take_over`.

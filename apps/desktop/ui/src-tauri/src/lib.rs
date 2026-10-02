@@ -4,14 +4,15 @@
 //! `src/session/tauriEngine.ts` is the other half of the contract (see
 //! `apps/desktop/ui/BRIDGE.md`).
 //!
-//! What is real today: audio device lists and the input meter (cpal/WASAPI),
-//! room codes and pairing (services/rendezvous), and the booth link (round
-//! trip, jitter, loss, coordination messages and levels between the two
-//! apps). Not yet: live audio between the booths, which waits for the
-//! engine's device mode (crates/engine).
+//! Before the set: devices and the input meter (crates/audio-io), room codes
+//! and pairing (services/rendezvous), and the booth link (round trip, jitter,
+//! loss, coordination messages and levels between the two apps). The set
+//! itself: the engine's live session (crates/live) on the same socket, input
+//! and headphones.
 
 pub mod devices;
 pub mod link;
+pub mod live;
 pub mod nettest;
 
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -43,7 +44,12 @@ struct EngineInfo {
 
 #[derive(Default)]
 struct Booth {
-    meter: Mutex<Option<devices::InputMeter>>,
+    /// The input picked in Booth Check: metered there, sent during the set.
+    capture: Mutex<Option<devices::Capture>>,
+    output_id: Mutex<Option<String>>,
+    /// Our name, as given when the room was created or joined.
+    name: Mutex<String>,
+    live: Mutex<Option<live::LiveRun>>,
     link: Mutex<Option<BoothLink>>,
     /// Kept to tell the server we left.
     conn: Mutex<Option<Connection>>,
@@ -151,7 +157,7 @@ fn connect(app: &AppHandle, booth: &Booth, conn: Connection, code: &str) -> CmdR
 
 #[tauri::command]
 fn engine_info() -> EngineInfo {
-    EngineInfo { version: env!("CARGO_PKG_VERSION"), room_server: room_server(), live_audio: false }
+    EngineInfo { version: env!("CARGO_PKG_VERSION"), room_server: room_server(), live_audio: true }
 }
 
 #[tauri::command]
@@ -162,17 +168,91 @@ async fn list_devices() -> devices::DeviceList {
 
 #[tauri::command]
 async fn start_input_meter(id: String, booth: State<'_, Booth>) -> CmdResult<()> {
-    let mut slot = booth.meter.lock().map_err(err)?;
+    let mut slot = booth.capture.lock().map_err(err)?;
     *slot = None; // close the old device first
-    *slot = Some(devices::meter_input(&id).map_err(err)?);
+    *slot = Some(devices::open_input(&id).map_err(err)?);
     Ok(())
 }
 
 #[tauri::command]
 fn stop_input_meter(booth: State<'_, Booth>) {
-    if let Ok(mut slot) = booth.meter.lock() {
+    if let Ok(mut slot) = booth.capture.lock() {
         *slot = None;
     }
+}
+
+#[tauri::command]
+fn select_output(id: String, booth: State<'_, Booth>) -> CmdResult<()> {
+    *booth.output_id.lock().map_err(err)? = Some(id);
+    Ok(())
+}
+
+/// Where a set's recordings go: Music\Obsidian\<time> (or the app's data folder).
+fn record_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    let base = app.path().audio_dir().or_else(|_| app.path().app_data_dir()).ok()?;
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    Some(base.join("Obsidian").join(format!("set-{secs}")))
+}
+
+/// The countdown is over: the engine takes the socket, the input and the headphones.
+#[tauri::command]
+async fn start_live(start_on_air: bool, app: AppHandle) -> CmdResult<()> {
+    let booth = app.state::<Booth>();
+    let capture = booth.capture.lock().map_err(err)?.take().ok_or("Pick what you send first.")?;
+    let (sock, peer) = {
+        let conn = booth.conn.lock().map_err(err)?;
+        let c = conn.as_ref().ok_or("Not connected to the other booth")?;
+        (c.socket.try_clone().map_err(err)?, c.peer_addr)
+    };
+    if let Some(l) = booth.link.lock().map_err(err)?.take() {
+        l.hand_over();
+    }
+    let setup = live::LiveSetup {
+        name: booth.name.lock().map_err(err)?.clone(),
+        capture,
+        output_id: booth.output_id.lock().map_err(err)?.clone(),
+        sock,
+        peer,
+        start_on_air,
+        record_dir: record_dir(&app),
+    };
+    let run = tauri::async_runtime::spawn_blocking(move || live::LiveRun::start(setup))
+        .await
+        .map_err(err)?
+        .map_err(|e| format!("Couldn't start the audio: {e}"))?;
+    *booth.live.lock().map_err(err)? = Some(run);
+    Ok(())
+}
+
+fn with_live(booth: &Booth, f: impl FnOnce(&live::LiveRun)) -> CmdResult<()> {
+    let l = booth.live.lock().map_err(err)?;
+    f(l.as_ref().ok_or("The set isn't running")?);
+    Ok(())
+}
+
+#[tauri::command]
+fn live_take_over(booth: State<'_, Booth>) -> CmdResult<()> {
+    with_live(&booth, |l| l.take_over())
+}
+
+#[tauri::command]
+fn live_set_fader(value: f32, booth: State<'_, Booth>) -> CmdResult<()> {
+    with_live(&booth, |l| l.set_fader(value))
+}
+
+#[tauri::command]
+fn live_set_partner_volume(value: f32, booth: State<'_, Booth>) -> CmdResult<()> {
+    with_live(&booth, |l| l.set_partner_volume(value))
+}
+
+/// Ends the set; returns the folder its recordings were written to.
+#[tauri::command]
+async fn stop_live(booth: State<'_, Booth>) -> CmdResult<Option<String>> {
+    let run = booth.live.lock().map_err(err)?.take();
+    let Some(run) = run else { return Ok(None) };
+    let dir = run.record_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || run.stop()).await.map_err(err)?;
+    Ok(dir.map(|d| d.display().to_string()))
 }
 
 /// Creates a room and returns its code at once; `room-event` says when the
@@ -180,6 +260,7 @@ fn stop_input_meter(booth: State<'_, Booth>) {
 #[tauri::command]
 async fn create_room(name: String, app: AppHandle) -> CmdResult<String> {
     let cfg = client_config()?;
+    *app.state::<Booth>().name.lock().map_err(err)? = name.clone();
     let generation = app.state::<Booth>().generation.load(Ordering::SeqCst);
     let room = tauri::async_runtime::spawn_blocking(move || rendezvous::create_room(&cfg, &name))
         .await
@@ -211,6 +292,7 @@ async fn create_room(name: String, app: AppHandle) -> CmdResult<String> {
 #[tauri::command]
 async fn join_room(code: String, name: String, app: AppHandle) -> CmdResult<Paired> {
     let cfg = client_config()?;
+    *app.state::<Booth>().name.lock().map_err(err)? = name.clone();
     let c = code.clone();
     let conn = tauri::async_runtime::spawn_blocking(move || rendezvous::join_room(&cfg, &c, &name))
         .await
@@ -222,6 +304,9 @@ async fn join_room(code: String, name: String, app: AppHandle) -> CmdResult<Pair
 #[tauri::command]
 fn leave_room(booth: State<'_, Booth>) {
     booth.generation.fetch_add(1, Ordering::SeqCst);
+    if let Ok(mut l) = booth.live.lock() {
+        *l = None; // ends the set if one is running
+    }
     if let Ok(mut l) = booth.link.lock() {
         *l = None; // says goodbye to the other booth
     }
@@ -251,22 +336,34 @@ async fn run_network_test(seconds: f64, booth: State<'_, Booth>) -> CmdResult<ne
         .ok_or_else(|| "The link closed during the test".to_string())
 }
 
-/// Sends meter readings to the UI (and to the other booth) while a meter is open.
+/// Sends levels to the UI (and before the set, to the other booth), and
+/// during the set the engine's status, about 30 times a second.
 fn spawn_level_pump(app: AppHandle) {
     thread::Builder::new()
         .name("level-pump".into())
-        .spawn(move || loop {
-            thread::sleep(Duration::from_millis(33));
-            let booth = app.state::<Booth>();
-            let local = match booth.meter.lock() {
-                Ok(m) => m.as_ref().map(|m| m.peaks.take_dbfs()),
-                Err(_) => None,
-            };
-            if let Some(local) = local {
-                let _ = app.emit("local-level", Level::from(local));
-                if let Ok(link) = booth.link.lock() {
-                    if let Some(link) = link.as_ref() {
-                        link.set_local_level(local);
+        .spawn(move || {
+            let mut tick: u32 = 0;
+            loop {
+                thread::sleep(Duration::from_millis(33));
+                tick = tick.wrapping_add(1);
+                let booth = app.state::<Booth>();
+                if tick.is_multiple_of(2) {
+                    let status = booth.live.lock().ok().and_then(|l| l.as_ref().map(|l| l.status()));
+                    if let Some(st) = status {
+                        let _ = app.emit("live-status", st);
+                        continue;
+                    }
+                }
+                let level = match booth.capture.lock() {
+                    Ok(c) => c.as_ref().map(|c| c.level_dbfs()),
+                    Err(_) => None,
+                };
+                if let Some(db) = level {
+                    let _ = app.emit("local-level", Level::from((db, db)));
+                    if let Ok(link) = booth.link.lock() {
+                        if let Some(link) = link.as_ref() {
+                            link.set_local_level((db, db));
+                        }
                     }
                 }
             }
@@ -286,11 +383,17 @@ pub fn run() {
             list_devices,
             start_input_meter,
             stop_input_meter,
+            select_output,
             create_room,
             join_room,
             leave_room,
             send_control,
             run_network_test,
+            start_live,
+            live_take_over,
+            live_set_fader,
+            live_set_partner_volume,
+            stop_live,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Obsidian");

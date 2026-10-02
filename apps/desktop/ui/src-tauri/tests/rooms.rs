@@ -75,3 +75,52 @@ fn booths_talk_directly() {
 fn booths_talk_through_the_relay() {
     talk(true);
 }
+
+/// The start of the set: both links step aside without a goodbye, the live
+/// engine takes the same sockets, and TAKE OVER reaches the other side.
+#[test]
+fn the_engine_takes_over_the_paired_sockets() {
+    use obsidian_live::{run_live, Cmd, LiveConfig, LiveControls, LiveSource};
+    use std::time::Instant;
+
+    let (h, g) = pair(ClientConfig::new(start_server()));
+    let (hs, gs) = (Collect::default(), Collect::default());
+    let (hl, gl) = (link(&h, hs.clone()), link(&g, gs.clone()));
+    thread::sleep(Duration::from_millis(300));
+    hl.hand_over();
+    gl.hand_over();
+    // A goodbye would have shown up as "left" on the other side.
+    assert!(hs.statuses.lock().unwrap().iter().all(|s| s.state != PeerState::Left));
+    assert!(gs.statuses.lock().unwrap().iter().all(|s| s.state != PeerState::Left));
+
+    let start = |c: &Connection, name: &str, on_air: bool| {
+        let program = Arc::new(obsidian_testaudio::track(&obsidian_testaudio::dj_b()));
+        let mut cfg = LiveConfig::new(name, LiveSource::Deck { title: "test".into(), program });
+        cfg.peer = Some(c.peer_addr);
+        cfg.start_on_air = on_air;
+        cfg.autoplay = true;
+        let ctl = Arc::new(LiveControls::default());
+        let (c2, sock) = (ctl.clone(), c.socket.try_clone().unwrap());
+        let j = thread::spawn(move || run_live(cfg, sock, c2));
+        (ctl, j)
+    };
+    let (hc, hj) = start(&h, "Val", true);
+    let (gc, gj) = start(&g, "Dana", false);
+
+    let wait = |what: &str, f: &dyn Fn() -> bool| {
+        let until = Instant::now() + Duration::from_secs(20);
+        while !f() {
+            assert!(Instant::now() < until, "timed out waiting for {what}: {:?}", gc.status().phase);
+            thread::sleep(Duration::from_millis(100));
+        }
+    };
+    wait("the guest to hear the host", &|| gc.status().partner_on_air);
+    assert_eq!(gc.status().partner_name.as_deref(), Some("Val"));
+    gc.send(Cmd::TakeOver);
+    wait("the host to see the handover", &|| hc.status().partner_on_air && !hc.status().on_air);
+
+    hc.stop();
+    gc.stop();
+    hj.join().unwrap().unwrap();
+    gj.join().unwrap().unwrap();
+}

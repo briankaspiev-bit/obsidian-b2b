@@ -3,7 +3,7 @@
 // laptops would run it, without Tauri.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Bridge, EngineInfo, LinkStatus, NetworkResult, RoomEvent, WireLevel } from './bridge';
+import type { Bridge, EngineInfo, LinkStatus, LiveStatus, NetworkResult, RoomEvent, WireLevel } from './bridge';
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS } from './engine';
 import { roleOf } from './sessionReducer';
 import { TauriSessionEngine } from './tauriEngine';
@@ -14,7 +14,23 @@ type Handlers = {
   status?: (s: LinkStatus) => void;
   local?: (l: WireLevel) => void;
   remote?: (l: WireLevel) => void;
+  live?: (s: LiveStatus) => void;
 };
+
+const liveStatus = (onAir: boolean, partnerOnAir: boolean): LiveStatus => ({
+  phase: 'live',
+  partner_name: null,
+  on_air: onAir,
+  partner_on_air: partnerOnAir,
+  booth_delay_ms: 80,
+  rtt_ms: 150,
+  margin_ms: 20,
+  recovered_10s: 0,
+  concealed_10s: 0,
+  local_peak: 0.5,
+  partner_peak: 0.25,
+  send_kbps: 900,
+});
 
 const NET: NetworkResult = {
   pingsSent: 40,
@@ -27,9 +43,17 @@ const NET: NetworkResult = {
   reached: true,
 };
 
-/** A pretend room server plus booth link connecting two fake bridges. */
+/** A pretend room server, booth link and live engine connecting two fake bridges. */
 function fakeWorld() {
   const rooms = new Map<string, { host: Handlers; hostName: string }>();
+  // The live engine's view: who is on air, per side.
+  const onAir = new Map<Handlers, boolean>();
+  const publish = () => {
+    for (const [h, mine] of onAir) {
+      const other = [...onAir].find(([k]) => k !== h)?.[1] ?? false;
+      h.live?.(liveStatus(mine, other));
+    }
+  };
   const make = () => {
     const h: Handlers = {};
     let peer: Handlers | null = null;
@@ -63,6 +87,21 @@ function fakeWorld() {
         other?.control?.(JSON.stringify(msg));
         return ok(undefined);
       },
+      selectOutput: () => ok(undefined),
+      startLive: (startOnAir: boolean) => {
+        onAir.set(h, startOnAir);
+        // The engine reports a few times a second; the first report lands after start.
+        if (onAir.size === 2) setTimeout(publish, 0);
+        return ok(undefined);
+      },
+      liveTakeOver: () => {
+        for (const k of onAir.keys()) onAir.set(k, k === h);
+        publish();
+        return ok(undefined);
+      },
+      liveSetFader: () => ok(undefined),
+      liveSetPartnerVolume: () => ok(undefined),
+      stopLive: () => ok('C:/Music/Obsidian/set-1'),
       runNetworkTest: () => {
         // Both mixers play during the check.
         h.local?.({ left: -9, right: -10 });
@@ -74,6 +113,7 @@ function fakeWorld() {
       onLinkStatus: (f) => ((h.status = f), ok(() => {})),
       onLocalLevel: (f) => ((h.local = f), ok(() => {})),
       onRemoteLevel: (f) => ((h.remote = f), ok(() => {})),
+      onLiveStatus: (f) => ((h.live = f), ok(() => {})),
     };
     return { b, h };
   };
@@ -87,12 +127,12 @@ describe('two desktop apps', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  async function pairedAndLive() {
+  async function pairedAndLive(engineInfo: EngineInfo = info) {
     const world = fakeWorld();
     const a = world.make();
     const b = world.make();
-    const val = new TauriSessionEngine(info, a.b);
-    const dana = new TauriSessionEngine(info, b.b);
+    const val = new TauriSessionEngine(engineInfo, a.b);
+    const dana = new TauriSessionEngine(engineInfo, b.b);
     val.setLocalProfile({ name: 'Val', city: 'New York' });
     dana.setLocalProfile({ name: 'Dana', city: 'London' });
 
@@ -172,5 +212,18 @@ describe('two desktop apps', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(val.getRoom().phase).toBe('home');
     expect(val.getRoom().createError).toContain('Dana left');
+  });
+
+  it('with live audio, TAKE OVER goes through the engine and both screens follow it', async () => {
+    const { val, dana } = await pairedAndLive({ ...info, liveAudio: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(roleOf(dana.getSession(), 'remote')).toBe('onAir');
+    expect(dana.getLink().diagnostics.bufferMs).toBe(20);
+    expect(dana.getRemoteLevel().left).toBeCloseTo(-12.04, 1);
+    dana.takeOver();
+    expect(roleOf(val.getSession(), 'local')).toBe('handoff');
+    await vi.advanceTimersByTimeAsync(HANDOFF_DURATION_MS + 10);
+    expect(roleOf(val.getSession(), 'remote')).toBe('onAir');
+    expect(roleOf(dana.getSession(), 'local')).toBe('onAir');
   });
 });

@@ -47,6 +47,24 @@ export interface LinkStatus {
   relay: boolean;
 }
 
+/** The engine's live session, as `obsidian_live::LiveStatus` serializes it. */
+export interface LiveStatus {
+  /** "waiting for partner", "measuring the network", "live", "partner not reachable", "partner left" */
+  phase: string;
+  partner_name: string | null;
+  on_air: boolean;
+  partner_on_air: boolean;
+  booth_delay_ms: number | null;
+  rtt_ms: number | null;
+  margin_ms: number | null;
+  recovered_10s: number;
+  concealed_10s: number;
+  /** Linear peak since the last status. */
+  local_peak: number;
+  partner_peak: number;
+  send_kbps: number;
+}
+
 /** dBFS; null is silence (JSON has no -Infinity). */
 export interface WireLevel {
   left: number | null;
@@ -64,12 +82,21 @@ export const bridge = {
   leaveRoom: () => invoke<void>('leave_room'),
   sendControl: (msg: unknown) => invoke<void>('send_control', { json: JSON.stringify(msg) }),
   runNetworkTest: (seconds: number) => invoke<NetworkResult>('run_network_test', { seconds }),
+  selectOutput: (id: string) => invoke<void>('select_output', { id }),
+  /** The countdown is over: the engine takes the connection, your input and headphones. */
+  startLive: (startOnAir: boolean) => invoke<void>('start_live', { startOnAir }),
+  liveTakeOver: () => invoke<void>('live_take_over'),
+  liveSetFader: (value: number) => invoke<void>('live_set_fader', { value }),
+  liveSetPartnerVolume: (value: number) => invoke<void>('live_set_partner_volume', { value }),
+  /** Ends the set; resolves with the folder its recordings went to. */
+  stopLive: () => invoke<string | null>('stop_live'),
 
   onRoomEvent: (f: (e: RoomEvent) => void) => listen<RoomEvent>('room-event', (e) => f(e.payload)),
   onPeerControl: (f: (json: string) => void) => listen<string>('peer-control', (e) => f(e.payload)),
   onLinkStatus: (f: (s: LinkStatus) => void) => listen<LinkStatus>('link-status', (e) => f(e.payload)),
   onLocalLevel: (f: (l: WireLevel) => void) => listen<WireLevel>('local-level', (e) => f(e.payload)),
   onRemoteLevel: (f: (l: WireLevel) => void) => listen<WireLevel>('remote-level', (e) => f(e.payload)),
+  onLiveStatus: (f: (s: LiveStatus) => void) => listen<LiveStatus>('live-status', (e) => f(e.payload)),
 };
 
 export type Unlisten = UnlistenFn;

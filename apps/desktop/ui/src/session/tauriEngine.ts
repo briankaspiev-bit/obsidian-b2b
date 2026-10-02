@@ -8,10 +8,10 @@
 // ready / TAKE OVER / handoff flow. Not yet: audio between the booths and
 // the recording, which wait for the engine's live mode.
 
-import { bridge as tauriBridge, type Bridge, type EngineInfo, type LinkStatus, type Unlisten, type WireLevel } from './bridge';
+import { bridge as tauriBridge, type Bridge, type EngineInfo, type LinkStatus, type LiveStatus, type Unlisten, type WireLevel } from './bridge';
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS, type SessionEngine } from './engine';
 import { createListeners, type Listener } from './listeners';
-import { evaluateCheck, initialRealLink, linkStateFrom, parsePeerMessage, type PeerMessage } from './peer';
+import { evaluateCheck, initialRealLink, linkStateFrom, linkStateFromLive, parsePeerMessage, peakToDb, type PeerMessage } from './peer';
 import { initialRoom, normalizeCode, roomAfterRemoteReady, roomReducer, type RoomAction } from './roomReducer';
 import { sessionReducer, type SessionAction } from './sessionReducer';
 import type { LinkState, RoomState, SessionState, StereoLevel } from './types';
@@ -85,6 +85,8 @@ export class TauriSessionEngine implements SessionEngine {
   private handoffTimer: ReturnType<typeof setTimeout> | undefined;
   /** Loudest levels seen while the booth check runs. */
   private peaks: { local: number; remote: number } | null = null;
+  /** True once the engine's live session runs the set (TAKE OVER goes through it). */
+  private engineLive = false;
   /** A hello that arrived before our side finished pairing. */
   private pendingHello: { name: string; city: string } | null = null;
   /** Bumped on leave so late answers from an old room are ignored. */
@@ -116,6 +118,7 @@ export class TauriSessionEngine implements SessionEngine {
         if (this.peaks) this.peaks.local = Math.max(this.peaks.local, this.localLevel.left, this.localLevel.right);
         this.localLevelListeners.emit();
       }),
+      b.onLiveStatus((st) => this.onLiveStatus(st)),
       b.onRemoteLevel((l) => {
         this.remoteLevel = fromWire(l);
         if (this.peaks) this.peaks.remote = Math.max(this.peaks.remote, this.remoteLevel.left, this.remoteLevel.right);
@@ -186,7 +189,10 @@ export class TauriSessionEngine implements SessionEngine {
     this.startMeter(id);
   };
 
-  selectOutput = (id: string) => this.roomDispatch({ type: 'selectOutput', id });
+  selectOutput = (id: string) => {
+    this.roomDispatch({ type: 'selectOutput', id });
+    void this.bridge.selectOutput(id).catch(() => {});
+  };
 
   runBoothCheck = () => {
     const r = this.room;
@@ -236,6 +242,7 @@ export class TauriSessionEngine implements SessionEngine {
 
   leaveRoom = () => {
     this.generation++;
+    this.engineLive = false;
     this.clearTimers();
     this.peaks = null;
     this.pendingHello = null;
@@ -264,17 +271,24 @@ export class TauriSessionEngine implements SessionEngine {
   markReady = () => this.localMove({ type: 'markReady', djId: LOCAL_ID, atMs: Date.now() }, { t: 'markReady' });
   cancelReady = () => this.localMove({ type: 'cancelReady', djId: LOCAL_ID, atMs: Date.now() }, { t: 'cancelReady' });
   takeOver = () => {
+    // With live audio the engine owns the mix: the screen follows its status.
+    if (this.engineLive) return void this.bridge.liveTakeOver().catch(() => {});
     if (this.beginTakeOver(LOCAL_ID)) this.send({ t: 'takeOver' });
   };
   emergencyTakeOver = () => {
     // Only when the live DJ is gone; the message lands if they come back.
     if (this.link.remote === 'connected') return;
+    if (this.engineLive) return void this.bridge.liveTakeOver().catch(() => {});
     clearTimeout(this.handoffTimer);
     this.localMove({ type: 'emergencyTakeOver', djId: LOCAL_ID, atMs: Date.now() }, { t: 'emergencyTakeOver' });
   };
   endSession = () => {
     clearTimeout(this.handoffTimer);
     this.localMove({ type: 'end', atMs: Date.now() }, { t: 'end' });
+    if (this.engineLive) {
+      this.engineLive = false;
+      void this.bridge.stopLive().catch(() => {});
+    }
   };
 
   // --- internals -----------------------------------------------------------
@@ -412,7 +426,51 @@ export class TauriSessionEngine implements SessionEngine {
       this.session = s;
       this.sessionListeners.emit();
       this.roomDispatch({ type: 'enterLive' });
+      if (this.info.liveAudio) this.startAudio(r.isHost);
     });
+  }
+
+  /** Hands the connection, your input and headphones to the engine. */
+  private startAudio(startOnAir: boolean) {
+    const gen = this.generation;
+    this.bridge.startLive(startOnAir).then(
+      () => {
+        if (gen === this.generation) this.engineLive = true;
+      },
+      (e) => {
+        if (gen !== this.generation) return;
+        this.leaveRoom();
+        this.roomDispatch({ type: 'createFailed', error: messageOf(e) });
+      },
+    );
+  }
+
+  private onLiveStatus(st: LiveStatus) {
+    if (!this.engineLive || this.room.phase !== 'live') return;
+    const now = Date.now();
+
+    const was = this.link.remote;
+    this.link = linkStateFromLive(st, this.link);
+    this.linkListeners.emit();
+    if (was === 'connected' && this.link.remote !== 'connected') this.dispatch({ type: 'remoteReconnecting', atMs: now });
+    if (was !== 'connected' && this.link.remote === 'connected') this.dispatch({ type: 'remoteReconnected', atMs: now });
+
+    const local = peakToDb(st.local_peak);
+    const remote = peakToDb(st.partner_peak);
+    this.localLevel = { left: local, right: local };
+    this.remoteLevel = { left: remote, right: remote };
+    this.localLevelListeners.emit();
+    this.remoteLevelListeners.emit();
+
+    // Who owns the mix is the engine's call; the screen catches up.
+    const owner = st.on_air ? LOCAL_ID : st.partner_on_air ? REMOTE_ID : null;
+    const s = this.session;
+    if (!owner || s.status !== 'live' || s.handoff || owner === s.ownerId) return;
+    if (this.link.remote !== 'connected') {
+      this.dispatch({ type: 'emergencyTakeOver', djId: owner, atMs: now });
+    } else {
+      this.beginTakeOver(owner);
+    }
   }
 
   private setSessionDj(id: string, name: string, city: string) {

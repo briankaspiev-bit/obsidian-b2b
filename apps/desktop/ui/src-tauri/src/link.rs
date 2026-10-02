@@ -73,6 +73,8 @@ enum Cmd {
     Level((f32, f32)),
     Test(Duration, Sender<NetworkResult>),
     Stop,
+    /// Stop without a goodbye: the session engine takes the socket over.
+    HandOver,
 }
 
 pub struct BoothLink {
@@ -119,6 +121,17 @@ impl Tester {
         let (tx, rx) = mpsc::channel();
         self.0.send(Cmd::Test(duration, tx)).ok()?;
         rx.recv().ok()
+    }
+}
+
+impl BoothLink {
+    /// Stops quietly, so the other booth doesn't read it as leaving. Used when
+    /// the session engine takes over the socket at the start of the set.
+    pub fn hand_over(mut self) {
+        let _ = self.tx.send(Cmd::HandOver);
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
     }
 }
 
@@ -180,6 +193,7 @@ fn run(sock: UdpSocket, peer: SocketAddr, relay: bool, rx: Receiver<Cmd>, sink: 
                     }
                     return;
                 }
+                Ok(Cmd::HandOver) => return,
                 Err(mpsc::TryRecvError::Empty) => break,
             }
         }

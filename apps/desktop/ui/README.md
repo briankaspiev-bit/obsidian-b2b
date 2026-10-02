@@ -42,8 +42,10 @@ OBSIDIAN_SERVER=127.0.0.1:3478 npx tauri dev                     # then a second
 | Devices and your send meter | yes (cpal / WASAPI) | |
 | Round trip, jitter, loss, clock match | yes (engine's ping/pong and clock-sync, `link.rs`) | |
 | The other DJ's meter | yes: their mixer's level, sent over the link | |
-| Ready, TAKE OVER, handoff, emergency take over, end | yes, coordinated between both apps | |
-| Hearing the other DJ, recording | no | the engine's live device mode (`crates/engine`) |
+| Hearing the other DJ, sending yours, recording | yes: at the end of the countdown the engine's live session (`crates/live`) takes the connection, your input and headphones; recordings go to Music\\Obsidian | |
+| TAKE OVER, emergency take over | yes, through the engine (its `State` packet) | |
+| The other DJ's READY during the set | no: shows on your screen only | a ready flag in the engine's `State` |
+| "Everything this laptop plays" as your send | yes, Windows 10 2004+ (system audio minus Obsidian itself) | |
 
 See `BRIDGE.md` for the commands, events and peer messages.
 
@@ -58,7 +60,7 @@ See `BRIDGE.md` for the commands, events and peer messages.
   browser or on request), `App.tsx` picks the screen.
 - `src/home/`, `src/booth/`, `src/live-session/` — the screens.
 - `src-tauri/src/` — `lib.rs` (commands, events), `devices.rs`, `link.rs`
-  (booth link), `nettest.rs`.
+  (booth link), `nettest.rs`, `live.rs` (starts the engine's live session).
 
 TAKE OVER only changes coordination state and logs events. It never mutes,
 cuts or reroutes anyone's audio.
