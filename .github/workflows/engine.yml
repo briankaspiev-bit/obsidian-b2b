@@ -20,6 +20,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Test (Opus is built from source by opusic-sys)
         run: cargo test --workspace --release
+      - name: Build all binaries (the bench runs obsidian-netem and obsidian-peer)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo build --release --workspace
       - name: Bench smoke (loopback, 30 s)
         if: matrix.os == 'ubuntu-latest'
         run: cargo run --release -p obsidian-bench -- run --out bench-out --only clean --duration 30
