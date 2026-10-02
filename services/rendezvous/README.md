@@ -77,7 +77,9 @@ cargo run --bin obsidian-probe -- join ABCD-2345 --server 127.0.0.1:3478
 
 `obsidian-probe` with no arguments asks for the server and a code, so a
 double-clicked Windows `.exe` works. Build with
-`OBSIDIAN_DEFAULT_SERVER=host:3478 cargo build --release` to bake the server in.
+`OBSIDIAN_DEFAULT_SERVER=host:3478 cargo build --release` to bake in a different
+server; otherwise it uses the project's server at `204.48.26.46:3478`
+(DigitalOcean, New York).
 It sends 320-byte packets 100 times a second (the engine's rate) for 30 s and
 prints round trip, one-way jitter, loss each way, and the fixed delay the
 other DJ would be heard at (feasibility report F.4: one-way p50 + jitter p99 +

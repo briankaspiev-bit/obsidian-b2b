@@ -56,7 +56,10 @@ fn connects_directly_when_nothing_blocks() {
     assert_eq!((h.path, g.path), (Path::Direct, Path::Direct));
     assert!(h.is_host && !g.is_host);
     assert_eq!(h.session, g.session);
-    assert_eq!((h.peer_name.as_str(), g.peer_name.as_str()), ("Dana", "Val"));
+    assert_eq!(
+        (h.peer_name.as_str(), g.peer_name.as_str()),
+        ("Dana", "Val")
+    );
     assert_eq!(h.peer_addr.port(), g.socket.local_addr().unwrap().port());
     exchange_media(&h, &g);
 }

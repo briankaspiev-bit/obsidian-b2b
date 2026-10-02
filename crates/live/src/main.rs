@@ -539,7 +539,14 @@ fn screen(
 ) -> Result<()> {
     let mut out = std::io::stdout();
     terminal::enable_raw_mode()?;
-    execute!(out, terminal::EnterAlternateScreen, cursor::Hide)?;
+    // Mouse capture also turns off the console's QuickEdit: a click in the window
+    // would otherwise freeze the screen and the keys until Enter or Esc.
+    execute!(
+        out,
+        terminal::EnterAlternateScreen,
+        cursor::Hide,
+        event::EnableMouseCapture
+    )?;
     let r = (|| -> Result<()> {
         loop {
             while event::poll(Duration::from_millis(0))? {
@@ -589,7 +596,12 @@ fn screen(
             std::thread::sleep(Duration::from_millis(30));
         }
     })();
-    execute!(out, cursor::Show, terminal::LeaveAlternateScreen)?;
+    execute!(
+        out,
+        event::DisableMouseCapture,
+        cursor::Show,
+        terminal::LeaveAlternateScreen
+    )?;
     terminal::disable_raw_mode()?;
     r
 }
@@ -650,7 +662,17 @@ fn draw(
             st.recovered_10s, st.concealed_10s, st.concealed_total, st.reanchors, st.send_kbps
         ),
         String::new(),
-        format!(" You       fader {} {:>3.0}%   {}", bar(knob(st.fader), 1.0, 20), knob(st.fader) * 100.0, meter(st.local_peak)),
+        format!(
+            " You       fader {} {:>3.0}%   {}{}",
+            bar(knob(st.fader), 1.0, 20),
+            knob(st.fader) * 100.0,
+            meter(st.local_peak),
+            match &st.deck {
+                Some(d) if !d.playing => "   (your track is paused: press P)",
+                _ if st.fader <= 0.0 => "   (your fader is all the way down: press ↑)",
+                _ => "",
+            }
+        ),
         format!(
             " {:<9} volume {} {:>3.0}%  {}{}",
             trunc(&partner, 9),

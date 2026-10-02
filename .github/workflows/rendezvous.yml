@@ -57,3 +57,28 @@ jobs:
           path: |
             services/rendezvous/target/release/obsidian-probe.exe
             services/rendezvous/target/release/rendezvous-server.exe
+
+  # End to end against the deployed server from a real internet host: two
+  # probes pair through it, once direct and once forced through the relay.
+  # Informational only, so a server outage never blocks code changes.
+  live-server:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/rendezvous
+      - run: cargo build --bins
+      - name: Pair two probes through 204.48.26.46:3478
+        run: |
+          for mode in "" "--relay"; do
+            target/debug/obsidian-probe create --seconds 5 $mode > host.log 2>&1 &
+            for i in $(seq 50); do code=$(sed -n 's/^Room code: //p' host.log); [ -n "$code" ] && break; sleep 0.2; done
+            [ -n "$code" ] || { cat host.log; exit 1; }
+            target/debug/obsidian-probe join "$code" --seconds 5 $mode | tee guest.log
+            wait
+            cat host.log
+            grep -q "Connection report" guest.log
+          done
