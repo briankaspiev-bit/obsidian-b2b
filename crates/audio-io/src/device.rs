@@ -24,6 +24,45 @@ pub fn list_devices() -> Result<DeviceList> {
     })
 }
 
+fn is_display(name: &str) -> bool {
+    let n = name.to_lowercase();
+    [
+        "display audio",
+        "hdmi",
+        "displayport",
+        "nvidia high definition",
+        "amd high definition",
+    ]
+    .iter()
+    .any(|k| n.contains(k))
+}
+
+/// A headphone output if there is one; else the system default, unless that is a
+/// monitor's HDMI/DisplayPort audio (a common
+/// Windows default on laptops plugged into a screen): then the first other output,
+/// which is usually the laptop's own speakers / headphone jack.
+fn default_output(host: &cpal::Host) -> Result<cpal::Device> {
+    // A headphone endpoint wins: on many laptops (Realtek, e.g. MSI) the headphone
+    // jack is its own "2nd output" device and the default "Speakers" stays silent
+    // when headphones are plugged in.
+    if let Some(d) = host.output_devices()?.find(|d| {
+        let n = d.to_string().to_lowercase();
+        n.contains("headphone") || n.contains("2nd output")
+    }) {
+        return Ok(d);
+    }
+    let def = host
+        .default_output_device()
+        .context("no default output device")?;
+    if !is_display(&def.to_string()) {
+        return Ok(def);
+    }
+    Ok(host
+        .output_devices()?
+        .find(|d| !is_display(&d.to_string()))
+        .unwrap_or(def))
+}
+
 fn find(devs: impl Iterator<Item = cpal::Device>, name: &str) -> Option<cpal::Device> {
     let want = name.to_lowercase();
     devs.into_iter()
@@ -39,6 +78,10 @@ pub struct StreamStats {
     pub ratio_ppm_milli: AtomicU64,
     /// Peak level of the last callback × 1e6.
     pub peak_micro: AtomicU64,
+    /// Frames per callback (last seen).
+    pub frames: AtomicU64,
+    /// The last error the sound card reported, if any.
+    pub last_error: Mutex<Option<String>>,
 }
 
 impl StreamStats {
@@ -55,6 +98,8 @@ pub struct OutputStream {
     pub name: String,
     pub rate: u32,
     pub channels: u16,
+    /// e.g. "f32, 2 ch, 48000 Hz".
+    pub format: String,
     pub stats: Arc<StreamStats>,
 }
 
@@ -72,15 +117,14 @@ pub fn start_output(
     let device = match name {
         Some(n) => find(host.output_devices()?, n)
             .ok_or_else(|| anyhow!("no output device matching \"{n}\""))?,
-        None => host
-            .default_output_device()
-            .context("no default output device")?,
+        None => default_output(&host)?,
     };
     let cfg = device
         .default_output_config()
         .context("output device config")?;
     let rate = cfg.sample_rate();
     let channels = cfg.channels();
+    let format = format!("{}, {} ch, {} Hz", cfg.sample_format(), channels, rate);
     let stats = Arc::new(StreamStats::default());
     let rs = Mutex::new(AdaptiveResampler::new(
         ENGINE_RATE,
@@ -108,6 +152,7 @@ pub fn start_output(
         name: device.to_string(),
         rate,
         channels,
+        format,
         stats,
     })
 }
@@ -127,6 +172,7 @@ fn build_out<T: SizedSample + FromSample<f32>>(
         0
     };
     let mut stereo: Vec<f32> = Vec::new();
+    let err_stats = stats.clone();
     let s = device.build_output_stream(
         config,
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
@@ -147,6 +193,7 @@ fn build_out<T: SizedSample + FromSample<f32>>(
                 }
             }
             stats.callbacks.fetch_add(1, Ordering::Relaxed);
+            stats.frames.store(frames as u64, Ordering::Relaxed);
             stats.underruns.store(r.underruns, Ordering::Relaxed);
             stats
                 .ratio_ppm_milli
@@ -155,7 +202,7 @@ fn build_out<T: SizedSample + FromSample<f32>>(
                 .peak_micro
                 .store((peak * 1e6) as u64, Ordering::Relaxed);
         },
-        |e| eprintln!("output stream: {e}"),
+        move |e| *err_stats.last_error.lock().unwrap() = Some(e.to_string()),
         None,
     )?;
     Ok(s)

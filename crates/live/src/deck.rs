@@ -78,6 +78,84 @@ pub fn analyze(program: &[f32]) -> Option<BeatGrid> {
     })
 }
 
+/// High-band energy per hop (claps, snares, hats): what tells beat 2 from beat 1
+/// when the kick is on every beat. The low-band onset envelope only sees kicks.
+#[derive(Default, Clone)]
+pub struct HfTracker {
+    prev: f32,
+    acc: f32,
+    n: usize,
+    pub env: Vec<f32>,
+}
+
+impl HfTracker {
+    pub fn push(&mut self, stereo: &[f32]) {
+        for fr in stereo.chunks_exact(2) {
+            let m = 0.5 * (fr[0] + fr[1]);
+            let d = m - self.prev;
+            self.prev = m;
+            self.acc += d * d;
+            self.n += 1;
+            if self.n == HOP {
+                self.env.push(self.acc.sqrt());
+                self.acc = 0.0;
+                self.n = 0;
+            }
+        }
+    }
+}
+
+pub fn hf_envelope(stereo: &[f32]) -> Vec<f32> {
+    let mut t = HfTracker::default();
+    t.push(stereo);
+    t.env
+}
+
+/// The track's average high-band pattern over one 4-beat bar (1 ms bins), starting
+/// at the grid's first beat. Used to guess which beat of the partner's bar to land on.
+pub fn bar_fold(program: &[f32], g: &BeatGrid) -> Vec<f32> {
+    let n = (program.len() / 2).min(90 * 48_000);
+    let env = hf_envelope(&program[..n * 2]);
+    fold(&env, g.offset / HOP as f64, 4.0 * g.period / HOP as f64)
+}
+
+/// Which beat of a 4-beat fold (`beat` bins per beat) is beat 1, guessed from where
+/// the claps/snares are: they sit on beats 2 and 4. (0 or 1: it can't tell 1 from 3.)
+pub fn clap_downbeat(fold: &[f32], beat: f64) -> f64 {
+    let n = fold.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let e = |i: usize| -> f32 {
+        let c = i as f64 * beat;
+        let w = (beat / 8.0).max(1.0) as i64;
+        (-w..=w)
+            .map(|o| fold[((c as i64 + o).rem_euclid(n as i64)) as usize])
+            .sum()
+    };
+    if e(1) + e(3) >= e(0) + e(2) {
+        0.0
+    } else {
+        1.0
+    }
+}
+
+/// Fold `env` onto one cycle of `len` bins starting at index `start`, averaged.
+pub fn fold(env: &[f32], start: f64, len: f64) -> Vec<f32> {
+    let bins = len.round().max(1.0) as usize;
+    let mut sum = vec![0f32; bins];
+    let mut cnt = vec![0u32; bins];
+    for (i, v) in env.iter().enumerate() {
+        let y = ((i as f64 - start).rem_euclid(len)).floor() as usize % bins;
+        sum[y] += v;
+        cnt[y] += 1;
+    }
+    sum.iter()
+        .zip(&cnt)
+        .map(|(s, &c)| if c > 0 { s / c as f32 } else { 0.0 })
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DeckStatus {
     pub title: String,
@@ -98,6 +176,7 @@ pub struct Deck {
     pub(crate) program: Arc<Vec<f32>>,
     frames: usize,
     pub grid: Option<BeatGrid>,
+    pub bar: Option<Vec<f32>>,
     pub pos: f64,
     pub playing: bool,
     /// Playback speed (1.0 = the file's own tempo). Pitch changes with it, like vinyl.
@@ -111,18 +190,22 @@ pub struct Deck {
     /// Sync has matched tempo and phase at least once since it was switched on.
     pub sync_locked: bool,
     pub sync_err_ms: Option<f64>,
+    /// After a lock, re-check the bar guess this many more times (longer windows help).
+    pub bar_checks_left: u8,
     xfade_from: Option<(f64, usize)>,
 }
 
 impl Deck {
     pub fn new(title: String, program: Arc<Vec<f32>>) -> Self {
         let grid = analyze(&program);
+        let bar = grid.map(|g| bar_fold(&program, &g));
         let frames = program.len() / 2;
         let mut d = Deck {
             title,
             program,
             frames,
             grid,
+            bar,
             pos: 0.0,
             playing: false,
             pitch: 1.0,
@@ -133,6 +216,7 @@ impl Deck {
             sync: false,
             sync_locked: false,
             sync_err_ms: None,
+            bar_checks_left: 0,
             xfade_from: None,
         };
         d.cue();
@@ -204,6 +288,13 @@ impl Deck {
         }
     }
 
+    /// Jump whole beats (negative = back), like a CDJ beat jump.
+    pub fn beat_jump(&mut self, beats: i32) {
+        if let Some(g) = self.grid {
+            self.jump(beats as f64 * g.period);
+        }
+    }
+
     /// Move the play head by `samples` with a short crossfade (a sync jump).
     pub fn jump(&mut self, samples: f64) {
         let old = self.pos;
@@ -241,6 +332,13 @@ impl Deck {
         let phase = ((self.pos - g.offset) / g.period).rem_euclid(1.0);
         let rem = if phase < 1e-9 { 0.0 } else { 1.0 - phase };
         Some(rem * g.period / (self.pitch * RATE))
+    }
+
+    /// Where the deck is in its bar, in beats (0.0 = beat 1 ... 3.99), counting
+    /// bars from the track's first beat.
+    pub fn beat_pos(&self) -> Option<f64> {
+        let g = self.grid?;
+        Some(((self.pos - g.offset) / g.period).rem_euclid(4.0))
     }
 
     pub fn status(&self) -> DeckStatus {

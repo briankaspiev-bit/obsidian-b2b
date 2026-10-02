@@ -86,6 +86,8 @@ pub enum Cmd {
     SyncToggle,
     /// Shift the deck's beat by this many ms (positive = earlier).
     Nudge(f64),
+    /// Jump the deck by whole beats (negative = back).
+    BeatJump(i32),
     /// Change the deck's speed by this many percent.
     Pitch(f64),
     /// Solo practice: bring the ghost DJ back in now.
@@ -124,6 +126,12 @@ pub struct LiveStatus {
     pub partner_peak: f32,
     pub partner_bpm: Option<f64>,
     pub deck: Option<DeckStatus>,
+    /// Phase meter: where both beats are, as you hear them.
+    pub beats: Option<BeatView>,
+    /// Peak level every 10 ms over the last 3 s, newest last, as heard now (for scrolling
+    /// waveforms). Same timeline for both, so kicks that line up sit at the same index.
+    pub wave_you: Vec<f32>,
+    pub wave_partner: Vec<f32>,
     pub ghost: Option<String>,
     pub send_kbps: f64,
     pub capture_underruns: u64,
@@ -135,6 +143,68 @@ pub struct LiveStatus {
     pub partner_beat: Option<BeatClock>,
     /// Newest last, "mm:ss text".
     pub events: Vec<String>,
+}
+
+/// The phase meter: both DJs' place in the bar as heard in the headphones.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct BeatView {
+    /// The partner's place in their bar: 0.0 = beat 1 ... 3.99.
+    pub partner: f64,
+    /// Your deck's place in its bar (no deck: None).
+    pub you: Option<f64>,
+    /// How far your beats run ahead of the partner's, in beats (negative = behind).
+    /// Whole beats count only when `bars_known`; otherwise it is within ±0.5.
+    pub ahead_beats: Option<f64>,
+    pub ahead_ms: Option<f64>,
+    /// Beat 1 is a real guess from both tracks' clap patterns (else just the nearest beat).
+    pub bars_known: bool,
+    pub beat_ms: f64,
+}
+
+/// The partner's beat grid as heard, refreshed every second.
+#[derive(Clone, Copy)]
+struct PartnerGrid {
+    /// Output time of one of the partner's beats, and the beat length (µs).
+    base_us: f64,
+    per_us: f64,
+    /// Which beat (counted from `base_us`) is a beat 1.
+    down_k: f64,
+    bars_known: bool,
+}
+
+impl PartnerGrid {
+    fn pos(&self, t_out: f64) -> f64 {
+        ((t_out - self.base_us) / self.per_us - self.down_k).rem_euclid(4.0)
+    }
+}
+
+/// Peak level per 10 ms, last 3 s.
+struct PeakWave {
+    cur: f32,
+    n: usize,
+    v: VecDeque<f32>,
+}
+
+impl PeakWave {
+    fn new() -> Self {
+        PeakWave {
+            cur: 0.0,
+            n: 0,
+            v: VecDeque::from(vec![0.0; 300]),
+        }
+    }
+    fn push(&mut self, stereo: &[f32]) {
+        for fr in stereo.chunks_exact(2) {
+            self.cur = self.cur.max(fr[0].abs()).max(fr[1].abs());
+            self.n += 1;
+            if self.n == 480 {
+                self.v.pop_front();
+                self.v.push_back(self.cur);
+                self.cur = 0.0;
+                self.n = 0;
+            }
+        }
+    }
 }
 
 pub struct LiveControls {
@@ -456,6 +526,7 @@ pub fn run_live(
     let mut buf = Vec::with_capacity(2048);
     let mut local_on = OnsetTracker::new(HOP);
     let mut remote_on = OnsetTracker::new(HOP);
+    let mut remote_hf = crate::deck::HfTracker::default();
     let mut local_act = Activity::new();
     let mut remote_act = Activity::new();
     let mut seen_gen = 0u64;
@@ -467,6 +538,9 @@ pub fn run_live(
     let mut partner_beat: Option<BeatClock> = None;
     let mut you_heard_beat: Option<BeatClock> = None;
     let (mut you_bands, mut partner_bands) = (BandSplit::default(), BandSplit::default());
+    let mut pgrid: Option<PartnerGrid> = None;
+    let mut wave_you = PeakWave::new();
+    let mut wave_partner = PeakWave::new();
     let mut next_ping = start;
     let mut next_state = start;
     let mut ping_id = 0u32;
@@ -519,6 +593,7 @@ pub fn run_live(
                                 next_sync = t;
                             }
                             Cmd::Nudge(ms) => d.nudge(ms, 0.25),
+                            Cmd::BeatJump(n) => d.beat_jump(n),
                             Cmd::Pitch(p) => d.pitch = (d.pitch + p / 100.0).clamp(0.85, 1.15),
                             _ => {}
                         }
@@ -722,6 +797,9 @@ pub fn run_live(
         // ---- beat tools ----
         local_on.push(&local);
         remote_on.push(&remote_out);
+        remote_hf.push(&remote_out);
+        wave_you.push(&local);
+        wave_partner.push(&remote_out);
         local_act.update(t, rms(&local) > 0.003);
         remote_act.update(t, rms(&remote_out) > 0.003);
         let end_idx = remote_on.env.len().min(local_on.env.len());
@@ -793,12 +871,22 @@ pub fn run_live(
                         .as_mut()
                         .filter(|d| d.sync && d.playing && !on_air && d.grid.is_some())
                     {
-                        sync_step(d, renv, pr, t + frame_us, &mut events, t, start);
+                        let hf = &remote_hf.env[remote_hf.env.len().saturating_sub(w)..];
+                        sync_step(d, renv, hf, pr, t + frame_us, &mut events, t, start);
+                    }
+                    let hf = &remote_hf.env[remote_hf.env.len().saturating_sub(w)..];
+                    pgrid = partner_grid(deck.as_ref(), renv, hf, pr, t + frame_us);
+                    // The bar guess SYNC uses, as a beat 1 on the screen's clock.
+                    if let (Some(b), Some(g)) =
+                        (partner_beat.as_mut(), pgrid.filter(|g| g.bars_known))
+                    {
+                        b.bar_ms = Some((g.base_us + g.down_k * g.per_us - start as f64) / 1e3);
                     }
                 }
             } else {
                 partner_bpm = None;
                 partner_beat = None;
+                pgrid = None;
             }
             // Captured music: find your beats the same way, from what was sent.
             if capture.is_some() {
@@ -814,7 +902,7 @@ pub fn run_live(
         }
 
         // ---- status ----
-        if t - last_status >= 100_000 {
+        if t - last_status >= 50_000 {
             last_status = t;
             let r = remote.lock().unwrap();
             let s = &r.pb.stats;
@@ -873,6 +961,9 @@ pub fn run_live(
                 partner_peak: remote_peak,
                 partner_bpm,
                 deck: deck.as_ref().map(|d| d.status()),
+                beats: pgrid.map(|g| beat_view(&g, deck.as_ref(), (t + frame_us) as f64)),
+                wave_you: wave_you.v.iter().copied().collect(),
+                wave_partner: wave_partner.v.iter().copied().collect(),
                 ghost: ghost.as_ref().map(|g| g.describe()),
                 send_kbps: bytes_sent.load(Ordering::Relaxed) as f64 * 8.0
                     / ((t - start).max(1) as f64 / 1e6)
@@ -963,9 +1054,141 @@ fn rstate_epoch(remote: &Mutex<Remote>) -> u32 {
 /// One SYNC correction: match the deck's tempo to the partner as heard, then pull
 /// its next beat onto the partner's beat grid. `renv` is the partner's onset
 /// envelope ending at output time `t_end`; `pr` its beat period in hops.
+/// Which shift (0-3 beats forward) of this deck's bar best matches the partner's
+/// bar pattern, given that the deck's next beat lands on partner beat `k` (counted
+/// from the beat at phase `ph` of `renv`). None when there is no clear winner.
+fn bar_shift(d: &Deck, renv: &[f32], pr: f64, ph: f64, k: f64) -> Option<i32> {
+    let c = bar_corr(d, renv, pr, ph, k)?;
+    let (best, &cb) = c
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())?;
+    // Only move when the winner is clearly better than staying put.
+    if best != 0 && cb - c[0] < 0.05 {
+        return Some(0);
+    }
+    Some(if best == 3 { -1 } else { best as i32 })
+}
+
+/// Bar-pattern correlation for shifting the deck 0-3 beats forward (see [`bar_shift`]).
+fn bar_corr(d: &Deck, renv: &[f32], pr: f64, ph: f64, k: f64) -> Option<[f64; 4]> {
+    // `renv` here is the partner's high-band envelope over the same window.
+    let g = d.grid?;
+    let own = d.bar.as_ref()?;
+    let ph_own = g.period / HOP as f64; // own beat in file bins
+    let remote = crate::deck::fold(renv, ph, 4.0 * pr);
+    let dt = d.time_to_next_beat()?;
+    let q = d.pos + dt * d.pitch * SAMPLE_RATE as f64;
+    let b = ((q - g.offset) / g.period).round().rem_euclid(4.0);
+    let kr = k.rem_euclid(4.0);
+    let n = remote.len();
+    let corr = |s: f64| -> f64 {
+        let (mut xs, mut ys) = (Vec::with_capacity(n), Vec::with_capacity(n));
+        for tau in 0..n {
+            let xo = ((b + s) * ph_own + tau as f64 * d.pitch).rem_euclid(own.len() as f64)
+                as usize
+                % own.len();
+            let yr = ((kr * pr + tau as f64).rem_euclid(n as f64)) as usize % n;
+            xs.push(own[xo] as f64);
+            ys.push(remote[yr] as f64);
+        }
+        let mx = xs.iter().sum::<f64>() / n as f64;
+        let my = ys.iter().sum::<f64>() / n as f64;
+        let (mut sxy, mut sxx, mut syy) = (0.0, 0.0, 0.0);
+        for (x, y) in xs.iter().zip(&ys) {
+            sxy += (x - mx) * (y - my);
+            sxx += (x - mx).powi(2);
+            syy += (y - my).powi(2);
+        }
+        sxy / (sxx * syy).sqrt().max(1e-12)
+    };
+    Some([corr(0.0), corr(1.0), corr(2.0), corr(3.0)])
+}
+
+/// The partner's beat grid as heard at output time `t_end` (`renv`/`rhf`: their onset
+/// and high-band envelopes ending then; `pr`: beat in hops). Beat 1 comes from your
+/// deck when its tempo is close (the same bar guess SYNC uses), else from the claps.
+fn partner_grid(
+    d: Option<&Deck>,
+    renv: &[f32],
+    rhf: &[f32],
+    pr: f64,
+    t_end: i64,
+) -> Option<PartnerGrid> {
+    let hop_us = HOP as f64 / SAMPLE_RATE as f64 * 1e6;
+    let ph = beat_phase(renv, pr)?;
+    let per_us = pr * hop_us;
+    let base_us = t_end as f64 - renv.len() as f64 * hop_us + ph * hop_us;
+    let beats_now = (t_end as f64 - base_us) / per_us;
+    if let Some(d) = d {
+        if let (Some(g), Some(own), Some(dt)) = (d.grid, d.beat_pos(), d.time_to_next_beat()) {
+            let own_per_us = g.period / (d.pitch * SAMPLE_RATE as f64) * 1e6;
+            if (own_per_us / per_us - 1.0).abs() < 0.12 {
+                let own_next = t_end as f64 + dt * 1e6;
+                let k = ((own_next - base_us) / per_us).round();
+                // Your next beat lands this far before the partner's nearest one.
+                let frac = (base_us + k * per_us - own_next) / per_us;
+                if let Some(c) = bar_corr(d, rhf, pr, ph, k) {
+                    let hi = c.iter().cloned().fold(f64::MIN, f64::max);
+                    let lo = c.iter().cloned().fold(f64::MAX, f64::min);
+                    // A real clap pattern to go by (claps on 2 and 4 can't tell 1 from 3:
+                    // then staying put wins, as in SYNC's own bar guess).
+                    if hi - lo >= 0.1 {
+                        let best = (0..4).find(|&i| c[i] == hi).unwrap();
+                        let best = if best != 0 && hi - c[0] < 0.05 {
+                            0
+                        } else {
+                            best
+                        };
+                        // Shifting your track s beats forward would line the bars up,
+                        // so you're s beats behind.
+                        let s = [0.0, 1.0, 2.0, -1.0][best];
+                        let ahead = frac - s;
+                        return Some(PartnerGrid {
+                            base_us,
+                            per_us,
+                            down_k: beats_now - (own - ahead),
+                            bars_known: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    let fold = crate::deck::fold(rhf, ph, 4.0 * pr);
+    Some(PartnerGrid {
+        base_us,
+        per_us,
+        down_k: crate::deck::clap_downbeat(&fold, pr),
+        bars_known: false,
+    })
+}
+
+fn beat_view(g: &PartnerGrid, d: Option<&Deck>, t_out: f64) -> BeatView {
+    let partner = g.pos(t_out);
+    let you = d.and_then(|d| d.beat_pos());
+    let ahead = you.map(|y| {
+        if g.bars_known {
+            (y - partner + 2.0).rem_euclid(4.0) - 2.0
+        } else {
+            (y - partner + 0.5).rem_euclid(1.0) - 0.5
+        }
+    });
+    BeatView {
+        partner,
+        you,
+        ahead_beats: ahead,
+        ahead_ms: ahead.map(|a| a * g.per_us / 1e3),
+        bars_known: g.bars_known,
+        beat_ms: g.per_us / 1e3,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn sync_step(
     d: &mut Deck,
     renv: &[f32],
+    rhf: &[f32],
     pr: f64,
     t_end: i64,
     events: &mut Vec<String>,
@@ -1021,11 +1244,35 @@ fn sync_step(
         // First lock: jump straight onto the beat (with a short crossfade).
         d.jump(e_us / 1e6 * d.pitch * SAMPLE_RATE as f64);
         d.sync_locked = true;
+        d.bar_checks_left = 3;
+        // Beats line up now; also guess the bar, so claps and phrases line up too.
+        if (target - base).abs() < 1e-9 {
+            if let Some(s) = bar_shift(d, rhf, pr, ph, k) {
+                if s != 0 {
+                    d.beat_jump(s);
+                    say(
+                        events,
+                        format!("SYNC moved your track {s} beat(s) to line up the bars"),
+                    );
+                }
+            }
+        }
         say(
             events,
             format!("SYNC locked to partner at {:.1} BPM", 60.0 / pr_s),
         );
     } else if e_us.abs() > 1500.0 {
         d.nudge(e_us / 1e3, 0.8);
+    } else if d.bar_checks_left > 0 && (target - base).abs() < 1e-9 {
+        d.bar_checks_left -= 1;
+        if let Some(s) = bar_shift(d, rhf, pr, ph, k) {
+            if s != 0 {
+                d.beat_jump(s);
+                say(
+                    events,
+                    format!("SYNC moved your track {s} beat(s) to line up the bars"),
+                );
+            }
+        }
     }
 }

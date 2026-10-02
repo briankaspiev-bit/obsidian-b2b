@@ -12,4 +12,4 @@ pub mod session;
 
 pub use ghost::{GhostPlan, GhostSession};
 pub use scope::{BeatClock, Column, ScopeChunk};
-pub use session::{run_live, Cmd, LiveConfig, LiveControls, LiveSource, LiveStatus};
+pub use session::{run_live, BeatView, Cmd, LiveConfig, LiveControls, LiveSource, LiveStatus};

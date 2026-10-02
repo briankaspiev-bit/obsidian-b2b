@@ -15,6 +15,7 @@ test, both laptops on Ethernet.
 3. Windows may warn that the app is unrecognised (it is not code-signed yet):
    **More info → Run anyway**. When it asks about the firewall, allow **private and public** networks.
 4. Run `.\obsidian-live.exe devices` to see your sound cards.
+5. Can't hear anything? Run `.\obsidian-live.exe tone` (or `tone --output "part of a name"`) for a test beep. The session screen also shows a "sound card" line: if its callbacks count up and the level meter moves but you hear nothing, the sound is going to a different jack or Windows has the app muted (Settings → Sound → Volume mixer).
 
 ## Practise alone (no partner, no DJ gear)
 
@@ -31,12 +32,21 @@ What to try:
 
 1. Listen for about 10 s while the link is measured; then you hear the ghost.
 2. Press **P** to start your track, then **S** (SYNC): your deck matches the ghost's
-   tempo and lands on its beat as you hear it. Or beatmatch by hand: **-** / **=** change
+   tempo and lands on its beat as you hear it, and guesses the bar so claps line up. If the bars still feel off, **[** / **]** move your track one beat. Or beatmatch by hand: **-** / **=** change
    the speed 0.1% at a time, **,** / **.** push the beat 10 ms back or forward.
 3. Bring yourself in with **↑** (your fader), then press **SPACE**: you're on air.
 4. The ghost keeps playing under you for 15 s, synced to you, then fades out over 15 s.
 5. A minute later (or when you press **G**) the ghost cues its next track, syncs to
    you as it hears you, fades in, and takes the air back. Fade yourself out with **↓**.
+
+### Reading the beat meter
+
+Under the deck line the screen draws one bar, beats 1 to 4, twice: the top marker is
+your partner's beat as you hear it, the bottom one is your track. When they move
+together you're beatmatched. The words next to it say how far off you are: "1 beat
+ahead · press [ to fix" means the bars are off (fix with [ or ]), "30 ms late" means the
+beats are close but not on top of each other (SYNC, or nudge with , and .). The Offset
+gauge shows the same thing as a needle: centred is on the beat.
 
 While you're on air, the ghost reaches you about two network trips late; the app adds
 just enough extra delay that it lands on your beat ("+N ms to land on your beat").
@@ -81,11 +91,12 @@ safety buffer, rescued and patched-over packets, your fader and the partner's vo
 |---|---|
 | SPACE (or T) | Take over: you're on air |
 | R | Ready: tell your partner you're cued to take over |
-| ↑ / ↓ | Your fader (what your partner and the room get) |
-| ← / → | Partner's volume in your headphones |
+| ↑ / ↓ | Your fader (what your partner and the room get), 10% a press |
+| ← / → | Partner's volume in your headphones, 10% a press (silent once the ghost has faded out: G brings it back) |
 | P | Play / pause your deck |
 | S | SYNC on/off (follows whoever is on air while you're coming in) |
 | C | Cue: back to the first beat |
+| [ / ] | Jump one beat back / forward (line up the bars) |
 | , / . | Nudge the beat 10 ms back / forward |
 | - / = | Speed −/+ 0.1% |
 | G | Solo: bring the ghost back now |
