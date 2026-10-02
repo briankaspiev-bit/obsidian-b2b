@@ -9,9 +9,10 @@ Early stage. What is here today:
 | `apps/desktop/ui/` | Desktop app UI (React + TypeScript + Vite): Home, Booth Check and Live Session screens, running on a mock engine. See its README. |
 | `notes/` | Implementation notes. |
 | `previews/` | Self-contained HTML build of the UI preview. |
+| `tools/merge/` | Master-mix merge tool (Rust CLI): rebuilds one clean master from both DJs' recordings after a session. See its README. |
 | `docs/remote-b2b-feasibility-report.md` | Feasibility report: latency model, engine choice, rights, first milestone. |
 
-Coming next (per the feasibility report's layout): `crates/` for the Rust real-time audio engine, and `tools/` for benchmarks and the master-mix merge tool.
+Coming next (per the feasibility report's layout): `crates/` for the Rust real-time audio engine, and more of `tools/` for benchmarks.
 
 ## Run the UI
 
