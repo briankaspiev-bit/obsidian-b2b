@@ -66,6 +66,17 @@ enum Command {
     },
     /// List sound cards.
     Devices,
+    /// Play a test beep on an output, to check you can hear the app at all.
+    Tone {
+        /// Output (part of the name from `devices`). Default: as for a session.
+        #[arg(long)]
+        output: Option<String>,
+        /// First channel of the pair (3 = channels 3/4).
+        #[arg(long, default_value_t = 1)]
+        output_channel: usize,
+        #[arg(long, default_value_t = 10.0)]
+        seconds: f64,
+    },
 }
 
 #[derive(Args, Clone)]
@@ -114,6 +125,11 @@ struct AudioArgs {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
+        Command::Tone {
+            output,
+            output_channel,
+            seconds,
+        } => tone(output.as_deref(), output_channel, seconds),
         Command::Devices => {
             let l = device::list_devices()?;
             println!(
@@ -182,6 +198,56 @@ fn main() -> Result<()> {
             session(audio, sock, Some(peer), title, None)
         }
     }
+}
+
+fn tone(output: Option<&str>, output_channel: usize, seconds: f64) -> Result<()> {
+    let sink = Arc::new(AudioFifo::new(48_000));
+    let s = device::start_output(output, sink.clone(), 15.0, output_channel.max(1) - 1)?;
+    println!("Playing a beep on: {} ({})", s.name, s.format);
+    println!("You should hear half-second beeps. Ctrl+C to stop.");
+    let t0 = Instant::now();
+    let mut n: u64 = 0;
+    let mut block = vec![0f32; 480];
+    let mut next_print = 1.0;
+    while t0.elapsed().as_secs_f64() < seconds {
+        // Keep the FIFO fed 30 ms ahead in 5 ms blocks.
+        while (n as f64) < (t0.elapsed().as_secs_f64() + 0.03) * 48_000.0 {
+            for k in 0..240 {
+                let i = n + k as u64;
+                let on = (i / 24_000) % 2 == 0;
+                let v = if on {
+                    0.2 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 48_000.0).sin()
+                } else {
+                    0.0
+                };
+                block[k * 2] = v;
+                block[k * 2 + 1] = v;
+            }
+            sink.push(&block);
+            n += 240;
+        }
+        if t0.elapsed().as_secs_f64() >= next_print {
+            next_print += 1.0;
+            let st = &s.stats;
+            println!(
+                "  {:>2.0} s  callbacks {}  ({} frames each)  level {:.2}  underruns {}{}",
+                t0.elapsed().as_secs_f64(),
+                st.callbacks.load(std::sync::atomic::Ordering::Relaxed),
+                st.frames.load(std::sync::atomic::Ordering::Relaxed),
+                st.peak(),
+                st.underruns.load(std::sync::atomic::Ordering::Relaxed),
+                st.last_error
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map(|e| format!("  ERROR {e}"))
+                    .unwrap_or_default()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    println!("Done. If the callbacks counted up and level was above 0 but you heard nothing, the sound went to a different jack or Windows has the app muted (Settings > Sound > Volume mixer).");
+    Ok(())
 }
 
 fn rand_seed() -> u64 {
@@ -256,6 +322,7 @@ fn session(
     // Headphones: the engine pushes 48 kHz blocks, the device pulls through a clock-bridging resampler.
     let sink = Arc::new(AudioFifo::new(48_000));
     let target_ms = 15.0;
+    let mut out_stats: Option<Arc<device::StreamStats>> = None;
     let out_name = if a.sim_output {
         keep.push(Keep::Sim(SimDevice::output(
             sink.clone(),
@@ -273,7 +340,8 @@ fn session(
             target_ms,
             a.output_channel.max(1) - 1,
         )?;
-        let n = format!("{} ({} Hz)", s.name, s.rate);
+        let n = format!("{} ({})", s.name, s.format);
+        out_stats = Some(s.stats.clone());
         keep.push(Keep::Out(s));
         n
     };
@@ -304,7 +372,14 @@ fn session(
     let script = parse_script(a.script.as_deref())?;
     let res = match a.headless {
         Some(secs) => headless(&ctl, ghost.as_deref(), secs, script),
-        None => screen(&ctl, ghost.as_deref(), &title, &out_name, capture_mode),
+        None => screen(
+            &ctl,
+            ghost.as_deref(),
+            &title,
+            &out_name,
+            capture_mode,
+            out_stats.as_deref(),
+        ),
     };
     ctl.stop();
     let fin = engine.join().unwrap();
@@ -446,6 +521,7 @@ fn screen(
     title: &str,
     out_name: &str,
     capture_mode: bool,
+    out_stats: Option<&device::StreamStats>,
 ) -> Result<()> {
     let mut out = std::io::stdout();
     terminal::enable_raw_mode()?;
@@ -492,6 +568,7 @@ fn screen(
                 out_name,
                 capture_mode,
                 ghost.is_some(),
+                out_stats,
             )?;
             std::thread::sleep(Duration::from_millis(80));
         }
@@ -508,6 +585,7 @@ fn draw(
     out_name: &str,
     capture_mode: bool,
     solo: bool,
+    out_stats: Option<&device::StreamStats>,
 ) -> Result<()> {
     let partner = st.partner_name.clone().unwrap_or_else(|| "Partner".into());
     let mm = |s: f64| format!("{:02}:{:02}", (s as u64) / 60, (s as u64) % 60);
@@ -527,6 +605,19 @@ fn draw(
     let mut lines = vec![
         format!(" OBSIDIAN LIVE  ·  {title}"),
         format!(" headphones: {out_name}    {}", mm(st.uptime_s)),
+        out_stats
+            .map(|o| {
+                use std::sync::atomic::Ordering::Relaxed;
+                format!(
+                    " sound card: {} callbacks of {} frames · output level {} · underruns {}{}",
+                    o.callbacks.load(Relaxed),
+                    o.frames.load(Relaxed),
+                    meter(o.peak()),
+                    o.underruns.load(Relaxed),
+                    o.last_error.lock().unwrap().as_ref().map(|e| format!(" · ERROR {e}")).unwrap_or_default()
+                )
+            })
+            .unwrap_or_default(),
         String::new(),
         format!(" {air}"),
         String::new(),

@@ -65,6 +65,8 @@ pub struct AdaptiveResampler {
     primed: bool,
     pub underruns: u64,
     pub ratio_ppm: f64,
+    /// Set when the target was raised to fit the device's callback size.
+    pub grown_to: Option<usize>,
 }
 
 impl AdaptiveResampler {
@@ -79,6 +81,7 @@ impl AdaptiveResampler {
             primed: false,
             underruns: 0,
             ratio_ppm: 0.0,
+            grown_to: None,
         }
     }
 
@@ -89,6 +92,14 @@ impl AdaptiveResampler {
     /// Fill `out` (interleaved stereo, `out.len()/2` frames).
     pub fn pull(&mut self, fifo: &AudioFifo, out: &mut [f32]) {
         let frames = out.len() / 2;
+        // The FIFO must hold more than one device callback plus one engine block, or
+        // every big callback underruns and re-primes (silence forever). Sound cards
+        // pick their own callback size, so grow the target to fit.
+        let floor = frames as f64 * self.nominal * 1.5 + 480.0;
+        if self.target < floor {
+            self.target = floor;
+            self.grown_to = Some(floor as usize);
+        }
         let level = fifo.len_frames() as f64 + self.buf.len() as f64 / 2.0 - self.pos;
         // Wait for the FIFO to reach its target before starting (or after an underrun).
         if !self.primed {
@@ -178,5 +189,33 @@ mod tests {
         assert!(lo > 400.0 && hi < 1_600.0, "level {lo}..{hi}");
         assert!((rs.ratio_ppm - 150.0).abs() < 30.0, "ppm {}", rs.ratio_ppm);
         assert!(rs.underruns <= 1);
+    }
+
+    #[test]
+    fn plays_through_callbacks_bigger_than_the_target() {
+        // A Windows shared-mode device asking for 1056 frames per callback against a
+        // 720-frame target used to underrun on every callback and stay silent.
+        let fifo = AudioFifo::new(48_000);
+        let mut rs = AdaptiveResampler::new(48_000, 48_000, 720);
+        let mut out = vec![0f32; 1056 * 2];
+        let mut produced = 0usize;
+        let mut loud = 0;
+        for cb in 0..2_000 {
+            // Engine pushes 240-frame blocks at 48 kHz; 1056 frames = 22 ms per callback.
+            let due = (cb + 1) * 1056;
+            while produced + 240 <= due {
+                fifo.push(&vec![0.5f32; 480]);
+                produced += 240;
+            }
+            rs.pull(&fifo, &mut out);
+            if cb > 100 && out.iter().all(|&v| (v - 0.5).abs() < 1e-3) {
+                loud += 1;
+            }
+        }
+        assert!(
+            loud > 1_850,
+            "only {loud} of 1899 callbacks had audio, {} underruns",
+            rs.underruns
+        );
     }
 }

@@ -15,6 +15,7 @@ test, both laptops on Ethernet.
 3. Windows may warn that the app is unrecognised (it is not code-signed yet):
    **More info → Run anyway**. When it asks about the firewall, allow **private and public** networks.
 4. Run `.\obsidian-live.exe devices` to see your sound cards.
+5. Can't hear anything? Run `.\obsidian-live.exe tone` (or `tone --output "part of a name"`) for a test beep. The session screen also shows a "sound card" line: if its callbacks count up and the level meter moves but you hear nothing, the sound is going to a different jack or Windows has the app muted (Settings → Sound → Volume mixer).
 
 ## Practise alone (no partner, no DJ gear)
 

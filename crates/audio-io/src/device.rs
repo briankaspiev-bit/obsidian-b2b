@@ -68,6 +68,10 @@ pub struct StreamStats {
     pub ratio_ppm_milli: AtomicU64,
     /// Peak level of the last callback × 1e6.
     pub peak_micro: AtomicU64,
+    /// Frames per callback (last seen).
+    pub frames: AtomicU64,
+    /// The last error the sound card reported, if any.
+    pub last_error: Mutex<Option<String>>,
 }
 
 impl StreamStats {
@@ -84,6 +88,8 @@ pub struct OutputStream {
     pub name: String,
     pub rate: u32,
     pub channels: u16,
+    /// e.g. "f32, 2 ch, 48000 Hz".
+    pub format: String,
     pub stats: Arc<StreamStats>,
 }
 
@@ -108,6 +114,7 @@ pub fn start_output(
         .context("output device config")?;
     let rate = cfg.sample_rate();
     let channels = cfg.channels();
+    let format = format!("{}, {} ch, {} Hz", cfg.sample_format(), channels, rate);
     let stats = Arc::new(StreamStats::default());
     let rs = Mutex::new(AdaptiveResampler::new(
         ENGINE_RATE,
@@ -135,6 +142,7 @@ pub fn start_output(
         name: device.to_string(),
         rate,
         channels,
+        format,
         stats,
     })
 }
@@ -154,6 +162,7 @@ fn build_out<T: SizedSample + FromSample<f32>>(
         0
     };
     let mut stereo: Vec<f32> = Vec::new();
+    let err_stats = stats.clone();
     let s = device.build_output_stream(
         config,
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
@@ -174,6 +183,7 @@ fn build_out<T: SizedSample + FromSample<f32>>(
                 }
             }
             stats.callbacks.fetch_add(1, Ordering::Relaxed);
+            stats.frames.store(frames as u64, Ordering::Relaxed);
             stats.underruns.store(r.underruns, Ordering::Relaxed);
             stats
                 .ratio_ppm_milli
@@ -182,7 +192,7 @@ fn build_out<T: SizedSample + FromSample<f32>>(
                 .peak_micro
                 .store((peak * 1e6) as u64, Ordering::Relaxed);
         },
-        |e| eprintln!("output stream: {e}"),
+        move |e| *err_stats.last_error.lock().unwrap() = Some(e.to_string()),
         None,
     )?;
     Ok(s)
