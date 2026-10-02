@@ -66,6 +66,17 @@ enum Command {
     },
     /// List sound cards.
     Devices,
+    /// Play a test beep on an output, to check you can hear the app at all.
+    Tone {
+        /// Output (part of the name from `devices`). Default: as for a session.
+        #[arg(long)]
+        output: Option<String>,
+        /// First channel of the pair (3 = channels 3/4).
+        #[arg(long, default_value_t = 1)]
+        output_channel: usize,
+        #[arg(long, default_value_t = 10.0)]
+        seconds: f64,
+    },
 }
 
 #[derive(Args, Clone)]
@@ -114,6 +125,11 @@ struct AudioArgs {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
+        Command::Tone {
+            output,
+            output_channel,
+            seconds,
+        } => tone(output.as_deref(), output_channel, seconds),
         Command::Devices => {
             let l = device::list_devices()?;
             println!(
@@ -182,6 +198,56 @@ fn main() -> Result<()> {
             session(audio, sock, Some(peer), title, None)
         }
     }
+}
+
+fn tone(output: Option<&str>, output_channel: usize, seconds: f64) -> Result<()> {
+    let sink = Arc::new(AudioFifo::new(48_000));
+    let s = device::start_output(output, sink.clone(), 15.0, output_channel.max(1) - 1)?;
+    println!("Playing a beep on: {} ({})", s.name, s.format);
+    println!("You should hear half-second beeps. Ctrl+C to stop.");
+    let t0 = Instant::now();
+    let mut n: u64 = 0;
+    let mut block = vec![0f32; 480];
+    let mut next_print = 1.0;
+    while t0.elapsed().as_secs_f64() < seconds {
+        // Keep the FIFO fed 30 ms ahead in 5 ms blocks.
+        while (n as f64) < (t0.elapsed().as_secs_f64() + 0.03) * 48_000.0 {
+            for k in 0..240 {
+                let i = n + k as u64;
+                let on = (i / 24_000) % 2 == 0;
+                let v = if on {
+                    0.2 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 48_000.0).sin()
+                } else {
+                    0.0
+                };
+                block[k * 2] = v;
+                block[k * 2 + 1] = v;
+            }
+            sink.push(&block);
+            n += 240;
+        }
+        if t0.elapsed().as_secs_f64() >= next_print {
+            next_print += 1.0;
+            let st = &s.stats;
+            println!(
+                "  {:>2.0} s  callbacks {}  ({} frames each)  level {:.2}  underruns {}{}",
+                t0.elapsed().as_secs_f64(),
+                st.callbacks.load(std::sync::atomic::Ordering::Relaxed),
+                st.frames.load(std::sync::atomic::Ordering::Relaxed),
+                st.peak(),
+                st.underruns.load(std::sync::atomic::Ordering::Relaxed),
+                st.last_error
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map(|e| format!("  ERROR {e}"))
+                    .unwrap_or_default()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    println!("Done. If the callbacks counted up and level was above 0 but you heard nothing, the sound went to a different jack or Windows has the app muted (Settings > Sound > Volume mixer).");
+    Ok(())
 }
 
 fn rand_seed() -> u64 {
@@ -256,6 +322,7 @@ fn session(
     // Headphones: the engine pushes 48 kHz blocks, the device pulls through a clock-bridging resampler.
     let sink = Arc::new(AudioFifo::new(48_000));
     let target_ms = 15.0;
+    let mut out_stats: Option<Arc<device::StreamStats>> = None;
     let out_name = if a.sim_output {
         keep.push(Keep::Sim(SimDevice::output(
             sink.clone(),
@@ -273,7 +340,8 @@ fn session(
             target_ms,
             a.output_channel.max(1) - 1,
         )?;
-        let n = format!("{} ({} Hz)", s.name, s.rate);
+        let n = format!("{} ({})", s.name, s.format);
+        out_stats = Some(s.stats.clone());
         keep.push(Keep::Out(s));
         n
     };
@@ -304,7 +372,14 @@ fn session(
     let script = parse_script(a.script.as_deref())?;
     let res = match a.headless {
         Some(secs) => headless(&ctl, ghost.as_deref(), secs, script),
-        None => screen(&ctl, ghost.as_deref(), &title, &out_name, capture_mode),
+        None => screen(
+            &ctl,
+            ghost.as_deref(),
+            &title,
+            &out_name,
+            capture_mode,
+            out_stats.as_deref(),
+        ),
     };
     ctl.stop();
     let fin = engine.join().unwrap();
@@ -347,6 +422,8 @@ fn apply(ctl: &LiveControls, ghost: Option<&LiveControls>, c: &str) {
         "play" => ctl.send(Cmd::DeckPlayPause),
         "sync" => ctl.send(Cmd::SyncToggle),
         "cue" => ctl.send(Cmd::DeckCue),
+        "jump" => ctl.send(Cmd::BeatJump(1)),
+        "back" => ctl.send(Cmd::BeatJump(-1)),
         "ready" => ctl.send(Cmd::SetReady(true)),
         "comeback" => {
             if let Some(g) = ghost {
@@ -405,6 +482,18 @@ fn headless(
                 d.and_then(|d| d.sync_err_ms).map(|e| format!("{e:+.1}ms")).unwrap_or("-".into()),
                 ghost.map(|g| g.status().ghost.unwrap_or_default()).unwrap_or_default(),
             );
+            if let Some(b) = &st.beats {
+                println!(
+                    "beats   partner={:.2} you={} ahead={} ({}) bars_known={}",
+                    b.partner,
+                    b.you.map(|v| format!("{v:.2}")).unwrap_or("-".into()),
+                    b.ahead_beats
+                        .map(|v| format!("{v:+.3}"))
+                        .unwrap_or("-".into()),
+                    fmt_ms(b.ahead_ms),
+                    b.bars_known
+                );
+            }
             if let Some(g) = ghost {
                 let gs = g.status();
                 println!(
@@ -446,10 +535,18 @@ fn screen(
     title: &str,
     out_name: &str,
     capture_mode: bool,
+    out_stats: Option<&device::StreamStats>,
 ) -> Result<()> {
     let mut out = std::io::stdout();
     terminal::enable_raw_mode()?;
-    execute!(out, terminal::EnterAlternateScreen, cursor::Hide)?;
+    // Mouse capture also turns off the console's QuickEdit: a click in the window
+    // would otherwise freeze the screen and the keys until Enter or Esc.
+    execute!(
+        out,
+        terminal::EnterAlternateScreen,
+        cursor::Hide,
+        event::EnableMouseCapture
+    )?;
     let r = (|| -> Result<()> {
         loop {
             while event::poll(Duration::from_millis(0))? {
@@ -464,14 +561,16 @@ fn screen(
                         KeyCode::Char('s') => ctl.send(Cmd::SyncToggle),
                         KeyCode::Char('c') => ctl.send(Cmd::DeckCue),
                         KeyCode::Char('r') => ctl.send(Cmd::SetReady(!ctl.status().ready)),
+                        KeyCode::Char('[') => ctl.send(Cmd::BeatJump(-1)),
+                        KeyCode::Char(']') => ctl.send(Cmd::BeatJump(1)),
                         KeyCode::Char(',') => ctl.send(Cmd::Nudge(-10.0)),
                         KeyCode::Char('.') => ctl.send(Cmd::Nudge(10.0)),
                         KeyCode::Char('-') => ctl.send(Cmd::Pitch(-0.1)),
                         KeyCode::Char('=') | KeyCode::Char('+') => ctl.send(Cmd::Pitch(0.1)),
-                        KeyCode::Up => ctl.set_fader(ctl.fader() + 0.05),
-                        KeyCode::Down => ctl.set_fader(ctl.fader() - 0.05),
-                        KeyCode::Right => ctl.set_partner_volume(ctl.partner_volume() + 0.05),
-                        KeyCode::Left => ctl.set_partner_volume(ctl.partner_volume() - 0.05),
+                        KeyCode::Up => ctl.set_fader(step(ctl.fader(), 1.0)),
+                        KeyCode::Down => ctl.set_fader(step(ctl.fader(), -1.0)),
+                        KeyCode::Right => ctl.set_partner_volume(step(ctl.partner_volume(), 1.0)),
+                        KeyCode::Left => ctl.set_partner_volume(step(ctl.partner_volume(), -1.0)),
                         KeyCode::Char('g') => {
                             if let Some(g) = ghost {
                                 g.send(Cmd::GhostComeBack)
@@ -481,18 +580,28 @@ fn screen(
                     }
                 }
             }
+            let mut st = ctl.status();
+            if let Some(g) = ghost {
+                st.ghost = g.status().ghost;
+            }
             draw(
                 &mut out,
-                &ctl.status(),
+                &st,
                 title,
                 out_name,
                 capture_mode,
                 ghost.is_some(),
+                out_stats,
             )?;
-            std::thread::sleep(Duration::from_millis(80));
+            std::thread::sleep(Duration::from_millis(30));
         }
     })();
-    execute!(out, cursor::Show, terminal::LeaveAlternateScreen)?;
+    execute!(
+        out,
+        event::DisableMouseCapture,
+        cursor::Show,
+        terminal::LeaveAlternateScreen
+    )?;
     terminal::disable_raw_mode()?;
     r
 }
@@ -504,6 +613,7 @@ fn draw(
     out_name: &str,
     capture_mode: bool,
     solo: bool,
+    out_stats: Option<&device::StreamStats>,
 ) -> Result<()> {
     let partner = st.partner_name.clone().unwrap_or_else(|| "Partner".into());
     let mm = |s: f64| format!("{:02}:{:02}", (s as u64) / 60, (s as u64) % 60);
@@ -523,6 +633,19 @@ fn draw(
     let mut lines = vec![
         format!(" OBSIDIAN LIVE  ·  {title}"),
         format!(" headphones: {out_name}    {}", mm(st.uptime_s)),
+        out_stats
+            .map(|o| {
+                use std::sync::atomic::Ordering::Relaxed;
+                format!(
+                    " sound card: {} callbacks of {} frames · output level {} · underruns {}{}",
+                    o.callbacks.load(Relaxed),
+                    o.frames.load(Relaxed),
+                    meter(o.peak()),
+                    o.underruns.load(Relaxed),
+                    o.last_error.lock().unwrap().as_ref().map(|e| format!(" · ERROR {e}")).unwrap_or_default()
+                )
+            })
+            .unwrap_or_default(),
         String::new(),
         format!(" {air}"),
         String::new(),
@@ -539,8 +662,29 @@ fn draw(
             st.recovered_10s, st.concealed_10s, st.concealed_total, st.reanchors, st.send_kbps
         ),
         String::new(),
-        format!(" You       fader {} {:>3.0}%   {}", bar(st.fader, 1.0, 20), st.fader * 100.0, meter(st.local_peak)),
-        format!(" {:<9} volume {} {:>3.0}%  {}", trunc(&partner, 9), bar(st.partner_volume, 2.0, 20), st.partner_volume * 100.0, meter(st.partner_peak)),
+        format!(
+            " You       fader {} {:>3.0}%   {}{}",
+            bar(knob(st.fader), 1.0, 20),
+            knob(st.fader) * 100.0,
+            meter(st.local_peak),
+            match &st.deck {
+                Some(d) if !d.playing => "   (your track is paused: press P)",
+                _ if st.fader <= 0.0 => "   (your fader is all the way down: press ↑)",
+                _ => "",
+            }
+        ),
+        format!(
+            " {:<9} volume {} {:>3.0}%  {}{}",
+            trunc(&partner, 9),
+            bar(knob(st.partner_volume), knob(2.0), 20),
+            knob(st.partner_volume) * 100.0,
+            meter(st.partner_peak),
+            if st.partner_peak < 0.001 && st.phase == "live" {
+                if solo { "   (silent: the ghost has faded out; G brings it back)" } else { "   (silent)" }
+            } else {
+                ""
+            }
+        ),
     ];
     if let Some(d) = &st.deck {
         lines.push(format!(
@@ -575,6 +719,10 @@ fn draw(
             .map(|b| format!("{partner} at {b:.1} BPM"))
             .unwrap_or("-".into())
     ));
+    if let Some(b) = &st.beats {
+        let playing = st.deck.as_ref().map(|d| d.playing).unwrap_or(false);
+        lines.extend(phase_meter(b, &partner, playing));
+    }
     if solo {
         lines.push(format!(
             " Ghost     {}",
@@ -587,16 +735,19 @@ fn draw(
         lines.push(format!("   {e}"));
     }
     lines.push(String::new());
-    let mut keys =
-        " SPACE take over  ·  R ready  ·  ↑↓ your fader  ·  ←→ partner volume  ·  ".to_string();
+    lines.push(
+        " SPACE take over  ·  R ready  ·  ↑↓ your fader  ·  ←→ partner volume  ·  Q quit".into(),
+    );
+    let mut keys = String::new();
     if st.deck.is_some() {
-        keys += "P play/pause  ·  S sync  ·  C cue  ·  , . nudge  ·  - = pitch  ·  ";
+        keys += " P play/pause  ·  S sync  ·  C cue  ·  [ ] beat jump  ·  , . nudge  ·  - = pitch";
     }
     if solo {
-        keys += "G ghost comes back  ·  ";
+        keys += "  ·  G ghost comes back";
     }
-    keys += "Q quit";
-    lines.push(keys);
+    if !keys.is_empty() {
+        lines.push(keys);
+    }
     let (w, _) = terminal::size().unwrap_or((120, 40));
     queue!(out, cursor::MoveTo(0, 0))?;
     for l in lines {
@@ -611,6 +762,104 @@ fn draw(
     queue!(out, terminal::Clear(terminal::ClearType::FromCursorDown))?;
     out.flush()?;
     Ok(())
+}
+
+/// Both beats as moving markers on a one-bar ruler, plus an offset gauge.
+fn phase_meter(b: &obsidian_live::BeatView, partner: &str, playing: bool) -> Vec<String> {
+    const PER_BEAT: usize = 8;
+    let ruler = |pos: f64| -> String {
+        let at = (pos * PER_BEAT as f64).round() as usize % (4 * PER_BEAT);
+        (0..4 * PER_BEAT)
+            .map(|i| {
+                if i == at {
+                    '█'
+                } else if i % PER_BEAT == 0 {
+                    '┃'
+                } else {
+                    '─'
+                }
+            })
+            .collect()
+    };
+    let mut head = String::new();
+    for n in 1..=4 {
+        head += &format!("{n:<w$}", w = PER_BEAT);
+    }
+    let mut out = vec![
+        String::new(),
+        format!(" {:<9} {head}", "Bar"),
+        format!(" {:<9} {}", trunc(partner, 9), ruler(b.partner)),
+    ];
+    if let (Some(y), false) = (b.you, playing) {
+        out.push(format!(" {:<9} {}   paused (P to play)", "You", ruler(y)));
+    } else if let (Some(y), Some(a)) = (b.you, b.ahead_beats) {
+        let whole = a.round();
+        let what = if b.bars_known && whole.abs() >= 1.0 {
+            let n = whole.abs() as i32;
+            format!(
+                "{n} beat{} {} · press {} to fix",
+                if n == 1 { "" } else { "s" },
+                if whole > 0.0 { "ahead" } else { "behind" },
+                if whole > 0.0 { "[" } else { "]" }
+            )
+        } else {
+            let ms = (a - whole) * b.beat_ms;
+            if ms.abs() < 5.0 {
+                "ON THE BEAT".to_string()
+            } else {
+                format!(
+                    "{:.0} ms {}",
+                    ms.abs(),
+                    if ms > 0.0 { "early" } else { "late" }
+                )
+            }
+        };
+        out.push(format!(" {:<9} {}   {what}", "You", ruler(y)));
+        // Offset gauge: ±60 ms around the partner's beat (whole beats left out).
+        let ms = (a - a.round()) * b.beat_ms;
+        let half = 15usize;
+        let at = (half as f64 + (ms / 60.0).clamp(-1.0, 1.0) * half as f64).round() as usize;
+        let gauge: String = (0..=2 * half)
+            .map(|i| {
+                if i == at {
+                    '█'
+                } else if i == half {
+                    '┃'
+                } else {
+                    '─'
+                }
+            })
+            .collect();
+        out.push(format!(
+            " {:<9} late {gauge} early{}",
+            "Offset",
+            if b.bars_known {
+                ""
+            } else {
+                "   (bar not sure yet)"
+            }
+        ));
+    }
+    out
+}
+
+/// Volume keys move a knob 10% per press on an audio taper, like a real fader:
+/// equal steps sound equal (straight gain steps of 5% were too small to hear).
+fn taper(knob: f32) -> f32 {
+    let k = knob.max(0.0);
+    if k < 0.05 {
+        0.0
+    } else {
+        k.powf(2.5)
+    }
+}
+
+fn step(gain: f32, dir: f32) -> f32 {
+    taper(((knob(gain) * 10.0).round() + dir) / 10.0)
+}
+
+fn knob(gain: f32) -> f32 {
+    gain.max(0.0).powf(0.4)
 }
 
 fn trunc(s: &str, n: usize) -> String {

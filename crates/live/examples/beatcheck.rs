@@ -32,7 +32,19 @@ fn main() {
                         (Some(x), Some(y)) => (y - x + p / 2.0).rem_euclid(p) - p / 2.0,
                         _ => f64::NAN,
                     };
-                    print!("fold {fold:+6.1} ms | ");
+                    let ha = obsidian_live::deck::hf_envelope(&a[s * 96..(s + w) * 96]);
+                    let hb = obsidian_live::deck::hf_envelope(&b[s * 96..(s + w) * 96]);
+                    let pk = |v: Vec<f32>| {
+                        v.iter()
+                            .enumerate()
+                            .max_by(|x, y| x.1.partial_cmp(y.1).unwrap())
+                            .unwrap()
+                            .0 as f64
+                    };
+                    let ca = pk(obsidian_live::deck::fold(&ha, 0.0, 2.0 * p));
+                    let cb = pk(obsidian_live::deck::fold(&hb, 0.0, 2.0 * p));
+                    let clap = (cb - ca + p).rem_euclid(2.0 * p) - p;
+                    print!("kicks {fold:+6.1} ms  claps {clap:+6.0} ms | ");
                     println!("{:>4}-{:<4}s  partner vs your beat {:+6.1} ms  (conf {:.1}, period {:.2} ms, partner period {:.2})", s / 1000, (s + w) / 1000, signed, conf, p, estimate_period(lb, hop_s, 70.0, 180.0).unwrap_or(0.0));
                 }
             }
