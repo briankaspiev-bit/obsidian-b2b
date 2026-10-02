@@ -111,3 +111,86 @@ fn the_dj_screen_sees_both_decks_beats_and_sync_lines_them_up() {
     engine.join().unwrap().unwrap();
     ghost.stop().unwrap();
 }
+
+/// What reaches the headphones: your fader only moves your deck, and the
+/// partner slider only moves the ghost.
+#[test]
+fn each_slider_moves_only_its_own_side_in_the_headphones() {
+    use obsidian_audio_io::{AdaptiveResampler, AudioFifo};
+
+    let sock = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let ghost =
+        GhostSession::start(sock.local_addr().unwrap(), PRACTICE_PATH, ghost_plan(), 9).unwrap();
+    let (title, program) = practice_track(None).unwrap();
+    let sink = Arc::new(AudioFifo::new(48_000 * 10));
+    let mut cfg = LiveConfig::new("Brian", LiveSource::Deck { title, program });
+    cfg.peer = Some(ghost.peer_for_user);
+    cfg.sink = Some(sink.clone());
+    let ctl = Arc::new(LiveControls::default());
+    let c2 = ctl.clone();
+    let engine = thread::spawn(move || run_live(cfg, sock, c2));
+
+    wait_for(&ctl, 25, |s| s.partner_on_air && s.partner_beat.is_some());
+    ctl.send(Cmd::DeckPlayPause);
+
+    // RMS of 1.5 s of headphone output at these slider settings.
+    let level = |fader: f32, pvol: f32| {
+        ctl.set_fader(fader);
+        ctl.set_partner_volume(pvol);
+        thread::sleep(Duration::from_millis(300));
+        sink.clear();
+        thread::sleep(Duration::from_millis(1500));
+        // Target just under what's queued, so the resampler reads it all as is.
+        let mut rs = AdaptiveResampler::new(48_000, 48_000, sink.len_frames() - 1_000);
+        let mut out = Vec::new();
+        let mut block = vec![0f32; 480 * 2];
+        while sink.len_frames() > 1_000 {
+            rs.pull(&sink, &mut block);
+            out.extend_from_slice(&block);
+        }
+        (out.iter().map(|x| x * x).sum::<f32>() / out.len().max(1) as f32).sqrt()
+    };
+    let ghost_only = level(0.0, 1.0);
+    let you_only = level(1.0, 0.0);
+    let both = level(1.0, 1.0);
+    let nothing = level(0.0, 0.0);
+    let ghost_loud = level(0.0, 2.0);
+
+    ctl.stop();
+    engine.join().unwrap().unwrap();
+    ghost.stop().unwrap();
+
+    eprintln!(
+        "ghost {ghost_only:.3} you {you_only:.3} both {both:.3} none {nothing:.4} ghost x2 {ghost_loud:.3}"
+    );
+    assert!(nothing < 0.001, "silent with both down: {nothing}");
+    assert!(
+        ghost_only > 0.05,
+        "ghost gone with your fader down: {ghost_only}"
+    );
+    assert!(you_only > 0.05, "you gone with the ghost down: {you_only}");
+    assert!(
+        both > ghost_only.max(you_only),
+        "both {both} louder than either alone"
+    );
+    assert!(
+        (ghost_loud / ghost_only - 2.0).abs() < 0.3,
+        "ghost slider scales only the ghost: {ghost_only} -> {ghost_loud}"
+    );
+}
+
+/// The ghost never plays your built-in groove, so its music stays tellable apart.
+#[test]
+fn the_ghosts_tracks_differ_from_your_built_in_groove() {
+    let (_, yours) = practice_track(None).unwrap();
+    for (title, t) in obsidian_desktop::live::ghost_playlist() {
+        let n = yours.len().min(t.len());
+        let diff: f32 = yours[..n]
+            .iter()
+            .zip(&t[..n])
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            / n as f32;
+        assert!(diff > 0.02, "{title} too close to your groove ({diff})");
+    }
+}

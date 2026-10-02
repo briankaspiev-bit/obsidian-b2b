@@ -58,20 +58,56 @@ pub struct LiveSetup {
 }
 
 /// The ghost's two built-in grooves; you get a third so you aren't mixing a track into itself.
-fn ghost_playlist() -> Vec<(String, Arc<Vec<f32>>)> {
+/// The ghost's tracks: a different key and bassline from your built-in groove, plus
+/// a bell riff on top, so you can always tell its music from yours in the
+/// headphones (even locked to the same beat).
+pub fn ghost_playlist() -> Vec<(String, Arc<Vec<f32>>)> {
+    let mut b = obsidian_testaudio::dj_a();
+    b.seed = 3;
+    b.root = 61.7;
     vec![
         (
-            "Ghost groove A (125 BPM)".into(),
-            Arc::new(obsidian_testaudio::track(&obsidian_testaudio::dj_a())),
+            "Ghost: Bell Groove (125 BPM)".into(),
+            Arc::new(with_bells(
+                obsidian_testaudio::track(&obsidian_testaudio::dj_a()),
+                125.0,
+                880.0,
+            )),
         ),
         (
-            "Ghost groove B (125 BPM)".into(),
-            Arc::new(obsidian_testaudio::track(&obsidian_testaudio::dj_b())),
+            "Ghost: Night Bells (125 BPM)".into(),
+            Arc::new(with_bells(obsidian_testaudio::track(&b), 125.0, 987.8)),
         ),
     ]
 }
 
-/// Your deck's track: a music file, or the built-in test groove.
+/// Adds a one-bar bell riff (beats 1, 2-and, 4) over a track, then evens out its level.
+fn with_bells(mut track: Vec<f32>, bpm: f32, root_hz: f32) -> Vec<f32> {
+    const FS: f32 = 48_000.0;
+    let beat = (60.0 / bpm * FS).round() as usize;
+    // (beat in bar, semitones above root)
+    let riff = [(0.0, 0.0), (1.5, 7.0), (3.0, 3.0)];
+    let frames = track.len() / 2;
+    let len = (0.35 * FS) as usize;
+    for bar in 0..frames / (4 * beat) + 1 {
+        for &(at, semis) in &riff {
+            let start = bar * 4 * beat + (at * beat as f32) as usize;
+            let f = root_hz * 2f32.powf(semis / 12.0);
+            for i in 0..len.min(frames.saturating_sub(start)) {
+                let t = i as f32 / FS;
+                let w = 2.0 * std::f32::consts::PI * f * t;
+                let s = (w.sin() + 0.4 * (2.76 * w).sin()) * (-t * 9.0).exp() * 0.22;
+                track[(start + i) * 2] += s * 0.8;
+                track[(start + i) * 2 + 1] += s;
+            }
+        }
+    }
+    let peak = track.iter().fold(0f32, |m, v| m.max(v.abs()));
+    let g = 0.7 / peak.max(1e-6);
+    track.iter_mut().for_each(|v| *v *= g);
+    track
+}
+
 pub fn practice_track(path: Option<&Path>) -> Result<(String, Arc<Vec<f32>>)> {
     match path {
         Some(p) => {
