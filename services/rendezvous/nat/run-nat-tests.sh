@@ -20,7 +20,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-cargo build --quiet --bins
+# CI builds as the normal user first (root has no rustup toolchain there).
+[[ -n ${SKIP_BUILD:-} ]] || cargo build --quiet --bins
 BIN="$PWD/target/debug"
 WORK="$(mktemp -d)"
 NS=(inet srv rtA rtB djA djA2 djB)

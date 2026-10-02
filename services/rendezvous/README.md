@@ -121,4 +121,4 @@ here first.
 - **Reconnecting** after a network change mid-set, IPv6 candidates beyond the
   primary interface, multiple relay regions, and auth on room creation (only
   per-IP rate limiting today).
-- **Hosting.** Needs one small VM with a public IPv4 and UDP port 3478 open.
+- **Hosting.** Needs one small VM with a public IPv4 and UDP port 3478 open; see [deploy/DEPLOY.md](deploy/DEPLOY.md).

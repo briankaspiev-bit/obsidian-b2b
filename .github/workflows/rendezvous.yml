@@ -40,8 +40,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y nftables iproute2
       - run: cargo build --bins
       - name: Simulated home routers
-        # cargo is on the runner user's PATH, not root's.
-        run: sudo env "PATH=$PATH" PROBE_SECONDS=3 nat/run-nat-tests.sh
+        run: sudo SKIP_BUILD=1 PROBE_SECONDS=3 nat/run-nat-tests.sh
 
   windows-probe:
     runs-on: windows-latest
