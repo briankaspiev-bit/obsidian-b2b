@@ -87,6 +87,9 @@ pub enum Packet {
         on_air: bool,
         /// The DJ coming in is cued and ready to take over (shown on the other screen).
         ready: bool,
+        /// The sender of this packet is losing bursts of our audio (bad Wi-Fi): please
+        /// send wider redundancy. Rides in the flags byte, so older builds ignore it.
+        shield: bool,
         tiebreak: u32,
         name: String,
     },
@@ -198,12 +201,13 @@ impl Packet {
                 epoch,
                 on_air,
                 ready,
+                shield,
                 tiebreak,
                 name,
             } => {
                 out.push(KIND_STATE);
                 out.extend_from_slice(&epoch.to_be_bytes());
-                out.push(*on_air as u8 | (*ready as u8) << 1);
+                out.push(*on_air as u8 | (*ready as u8) << 1 | (*shield as u8) << 2);
                 out.extend_from_slice(&tiebreak.to_be_bytes());
                 let n = &name.as_bytes()[..name.len().min(64)];
                 out.push(n.len() as u8);
@@ -263,6 +267,7 @@ impl Packet {
                     epoch,
                     on_air: flags & 1 != 0,
                     ready: flags & 2 != 0,
+                    shield: flags & 4 != 0,
                     tiebreak,
                     name,
                 })
@@ -315,6 +320,7 @@ mod tests {
                 epoch: 3,
                 on_air: false,
                 ready: true,
+                shield: true,
                 tiebreak: 99,
                 name: "Brian".into(),
             },

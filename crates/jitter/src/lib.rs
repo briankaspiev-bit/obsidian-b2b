@@ -446,6 +446,20 @@ impl PlayoutBuffer {
         self.last_out_us = now_us;
     }
 
+    /// Change how far back the sender's redundant copies reach (µs): the delay grows
+    /// or shrinks by the difference, so late copies still arrive in time.
+    pub fn set_recovery(&mut self, recovery_us: i64, at_out_us: i64, reason: &str) {
+        let delta = (recovery_us - self.cfg.recovery_us) as f64;
+        self.cfg.recovery_us = recovery_us;
+        if self.phase == Phase::Playing && delta != 0.0 {
+            self.add_delay(delta, at_out_us, reason);
+        }
+    }
+
+    pub fn recovery_us(&self) -> i64 {
+        self.cfg.recovery_us
+    }
+
     /// Change the planned delay by `delta_us` (e.g. beat-quantized monitoring).
     pub fn add_delay(&mut self, delta_us: f64, at_out_us: i64, reason: &str) {
         self.margin_us += delta_us;

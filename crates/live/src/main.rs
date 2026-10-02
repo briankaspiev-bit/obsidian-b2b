@@ -464,9 +464,11 @@ fn headless(
             next_line += 5.0;
             let d = st.deck.as_ref();
             println!(
-                "status  t={:>5.1} {:<22} on_air={} partner_on_air={} ready={} partner_ready={} delay={} buffer={} align={:+.0} rec10={} patched10={} late={} bpm={} deck_bpm={} sync_err={} ghost={}",
+                "status  t={:>5.1} {:<22} shield={}/{} on_air={} partner_on_air={} ready={} partner_ready={} delay={} buffer={} align={:+.0} rec10={} patched10={} late={} bpm={} deck_bpm={} sync_err={} ghost={}",
                 el,
                 st.phase,
+                st.shield,
+                st.partner_shield,
                 st.on_air,
                 st.partner_on_air,
                 st.ready,
@@ -661,6 +663,12 @@ fn draw(
             " Network   last 10 s: {} frames rescued, {} patched over  ·  total patched {}  ·  re-syncs {}  ·  {:.0} kbps up",
             st.recovered_10s, st.concealed_10s, st.concealed_total, st.reanchors, st.send_kbps
         ),
+        match (st.shield, st.partner_shield) {
+            (false, false) => String::new(),
+            (true, false) => " Wi-Fi     shield ON: your incoming link drops bursts, so it waits a bit longer and rebuilds them".into(),
+            (false, true) => format!(" Wi-Fi     shield ON: {partner} is losing bursts of your audio, so you send extra copies (check your Wi-Fi/Ethernet)"),
+            (true, true) => " Wi-Fi     shield ON both ways: the link drops bursts; use Ethernet if you can".into(),
+        },
         String::new(),
         format!(
             " You       fader {} {:>3.0}%   {}{}",

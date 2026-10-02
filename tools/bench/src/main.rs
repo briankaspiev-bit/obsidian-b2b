@@ -430,6 +430,7 @@ fn main() -> Result<()> {
                 case("nyc-tyo-r1", "nyc-tyo", &[1], 0.0, 0.0),
                 case("bad-wifi", "bad-wifi", &[1, 3], 0.0, 0.0),
                 case("bad-wifi-r147", "bad-wifi", &[1, 4, 7], 0.0, 0.0),
+                case("bad-wifi-wide", "bad-wifi", &[1, 2, 4, 7, 11, 16], 0.0, 0.0),
                 case("route-change", "route-change", &[1, 3], 0.0, 0.0),
                 case("drift+80/-50", "nyc-lon", &[1, 3], 80.0, -50.0),
             ];
