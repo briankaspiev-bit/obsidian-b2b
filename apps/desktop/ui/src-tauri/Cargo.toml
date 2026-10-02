@@ -1,0 +1,25 @@
+[package]
+name = "obsidian-desktop"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Obsidian desktop app: Tauri shell around the booth UI and the Rust booth engine."
+
+[lib]
+name = "obsidian_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+cpal = "0.15"
+obsidian-protocol = { path = "../../../../crates/protocol" }
+obsidian-clock = { path = "../../../../crates/clock" }
+
+# Builds on its own, like tools/merge: the root workspace belongs to the engine.
+[workspace]
