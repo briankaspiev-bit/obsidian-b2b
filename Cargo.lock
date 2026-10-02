@@ -821,6 +821,13 @@ name = "obsidian-protocol"
 version = "0.1.0"
 
 [[package]]
+name = "obsidian-rendezvous"
+version = "0.1.0"
+dependencies = [
+ "getrandom",
+]
+
+[[package]]
 name = "obsidian-testaudio"
 version = "0.1.0"
 dependencies = [

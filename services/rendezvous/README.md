@@ -8,6 +8,9 @@ direct path works, or this server's relay when a home router blocks it.
 Status labels follow the feasibility report: **[PROVEN]** tested here,
 **[PLAUSIBLE]** expected but not yet measured on the real internet.
 
+A member of the repo-root Cargo workspace, so the engine (`crates/live`) and the
+desktop app depend on it by path and binaries land in the root `target/`.
+
 ## Pieces
 
 | Path | What it is |
@@ -88,8 +91,8 @@ margin, plus ~25 ms of non-network latency from F.1).
 ## Tests
 
 ```sh
-cargo test                       # protocol, server logic, loopback end-to-end
-sudo nat/run-nat-tests.sh        # simulated routers (Linux, root, nftables)
+cargo test -p obsidian-rendezvous   # protocol, server logic, loopback end-to-end
+sudo nat/run-nat-tests.sh             # simulated routers (Linux, root, nftables)
 ```
 
 Simulated results **[PROVEN in simulation]**:

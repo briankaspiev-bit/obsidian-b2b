@@ -22,8 +22,8 @@ if [[ -d $SRC/.git ]]; then
 else
   git clone -q --branch "$BRANCH" "$REPO" "$SRC"
 fi
-cargo build --release --manifest-path "$SRC/services/rendezvous/Cargo.toml" --bin rendezvous-server
-install -m 755 "$SRC/services/rendezvous/target/release/rendezvous-server" /usr/local/bin/
+cargo build --release --manifest-path "$SRC/Cargo.toml" -p obsidian-rendezvous --bin rendezvous-server
+install -m 755 "$SRC/target/release/rendezvous-server" /usr/local/bin/
 
 id obsidian >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin obsidian
 cat >/etc/systemd/system/obsidian-rendezvous.service <<'UNIT'

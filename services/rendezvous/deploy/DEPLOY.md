@@ -43,7 +43,6 @@ right away. If you ever add a Cloud Firewall, allow inbound **UDP 3478**.
 
 **Updating later:** open the Console and paste
 `curl -sSf https://raw.githubusercontent.com/briankaspiev-bit/obsidian-b2b/main/services/rendezvous/deploy/install.sh | bash`
-(after PR #4 merges; before that, see the branch note under "Any Ubuntu VM").
 
 ## Any Ubuntu VM (manual)
 
@@ -51,9 +50,7 @@ Run as root:
 ```sh
 curl -sSf https://raw.githubusercontent.com/briankaspiev-bit/obsidian-b2b/main/services/rendezvous/deploy/install.sh | bash
 ```
-Until PR #4 merges, use `claude/project-thread-qdtv1w` instead of `main` in the
-URL and put `BRANCH=claude/project-thread-qdtv1w` before `bash`. It prints the
-server address when done.
+It prints the server address when done.
 
 ## Hetzner, Oracle free tier, or anything else
 
