@@ -22,8 +22,6 @@ obsidian-clock = { path = "../../../../crates/clock" }
 obsidian-rendezvous = { path = "../../../../services/rendezvous" }
 obsidian-audio-io = { path = "../../../../crates/audio-io" }
 obsidian-live = { path = "../../../../crates/live" }
-
-[dev-dependencies]
 obsidian-testaudio = { path = "../../../../crates/testaudio" }
 
 # Builds on its own, like tools/merge: the root workspace belongs to the engine.
