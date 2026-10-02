@@ -11,8 +11,8 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
 use crate::proto::{
-    is_control, is_valid_code, normalize_code, ErrorCode, Msg, PathDecision, SessionId, Token,
-    CODE_ALPHABET, CODE_LEN,
+    clamp_name, is_control, is_valid_code, normalize_code, ErrorCode, Msg, PathDecision, SessionId,
+    Token, CODE_ALPHABET, CODE_LEN,
 };
 
 #[derive(Debug, Clone)]
@@ -52,6 +52,7 @@ pub struct Stats {
 
 struct Member {
     token: Token,
+    name: String,
     addr: SocketAddr,
     local: Option<SocketAddr>,
     report: Option<bool>,
@@ -122,8 +123,13 @@ impl Server {
             return;
         };
         let reply = match msg {
-            Msg::Create { req, local } => self.create(now, src, req, local),
-            Msg::Join { req, code, local } => self.join(now, src, req, &code, local),
+            Msg::Create { req, name, local } => self.create(now, src, req, &name, local),
+            Msg::Join {
+                req,
+                code,
+                name,
+                local,
+            } => self.join(now, src, req, &code, &name, local),
             Msg::Poll { token } => self.poll(now, src, token),
             Msg::Report { token, direct_ok } => self.report(now, src, token, direct_ok),
             Msg::Leave { token } => {
@@ -164,6 +170,7 @@ impl Server {
         now: Instant,
         src: SocketAddr,
         req: u32,
+        name: &str,
         local: Option<SocketAddr>,
     ) -> Option<Msg> {
         // A retransmitted Create (our reply was lost) gets the same room back.
@@ -195,6 +202,7 @@ impl Server {
                 created_req: (src, req),
                 host: Member {
                     token,
+                    name: clamp_name(name),
                     addr: src,
                     local,
                     report: None,
@@ -220,6 +228,7 @@ impl Server {
         src: SocketAddr,
         req: u32,
         code: &str,
+        name: &str,
         local: Option<SocketAddr>,
     ) -> Option<Msg> {
         let code = normalize_code(code);
@@ -252,6 +261,7 @@ impl Server {
         let token: Token = random_bytes();
         room.guest = Some(Member {
             token,
+            name: clamp_name(name),
             addr: src,
             local,
             report: None,
@@ -292,6 +302,7 @@ impl Server {
                 observed: src,
                 peer_public: o.addr,
                 peer_local: o.local,
+                peer_name: o.name.clone(),
             },
         })
     }
@@ -480,6 +491,7 @@ mod tests {
             now,
             a,
             Msg::Create {
+                name: "Val".into(),
                 req: 1,
                 local: None,
             },
@@ -495,6 +507,7 @@ mod tests {
             now,
             b,
             Msg::Join {
+                name: "Val".into(),
                 req: 1,
                 code: code.to_lowercase(),
                 local: None,
@@ -516,6 +529,7 @@ mod tests {
             now,
             a,
             Msg::Create {
+                name: "Val".into(),
                 req: 1,
                 local: None,
             },
@@ -537,6 +551,7 @@ mod tests {
             now,
             a,
             Msg::Create {
+                name: "Val".into(),
                 req: 1,
                 local: None,
             },
@@ -554,6 +569,7 @@ mod tests {
             now,
             b,
             Msg::Join {
+                name: "Val".into(),
                 req: 5,
                 code: code.clone(),
                 local,
@@ -564,6 +580,7 @@ mod tests {
         };
         let r = call(&mut s, now, a, Msg::Poll { token: ta });
         let Msg::Peer {
+            peer_name,
             peer_public,
             peer_local,
             is_host,
@@ -573,6 +590,7 @@ mod tests {
             panic!()
         };
         assert_eq!((peer_public, peer_local, is_host), (b, local, true));
+        assert_eq!(peer_name, "Val");
         let r = call(&mut s, now, b, Msg::Poll { token: tb });
         assert!(
             matches!(r[0].0, Msg::Peer { peer_public, is_host: false, .. } if peer_public == a)
@@ -584,6 +602,7 @@ mod tests {
             now,
             addr("3.3.3.3:3"),
             Msg::Join {
+                name: "Val".into(),
                 req: 1,
                 code,
                 local: None,
@@ -606,8 +625,9 @@ mod tests {
             Instant::now(),
             addr("1.1.1.1:1"),
             Msg::Join {
+                name: "Val".into(),
                 req: 2,
-                code: "ZZZZZZ".into(),
+                code: "ZZZZZZZZ".into(),
                 local: None,
             },
         );
@@ -776,6 +796,7 @@ mod tests {
                 now,
                 addr(&format!("9.9.9.9:{port}")),
                 Msg::Create {
+                    name: "Val".into(),
                     req: i as u32,
                     local: None,
                 },

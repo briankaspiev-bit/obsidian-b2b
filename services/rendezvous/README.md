@@ -1,7 +1,7 @@
 # Rendezvous: how two DJ laptops find each other
 
 One small Rust service plus a client library. A DJ creates a room and gets a
-six-character code (`KQFDW2`), the other DJ types it in, and both apps end up
+eight-character code (`KQFD-W2X7`), the other DJ types it in, and both apps end up
 holding a UDP socket and an address to send audio to: the other laptop when a
 direct path works, or this server's relay when a home router blocks it.
 
@@ -20,7 +20,7 @@ Status labels follow the feasibility report: **[PROVEN]** tested here,
 
 ## How a connection is made
 
-1. **Create / join.** The host's app sends `Create`; the server answers with a
+1. **Create / join.** The host's app sends `Create` with its display name; the server answers with a
    room code, a secret member token, and the public address it saw the packet
    come from (what STUN does). The guest sends `Join` with the code.
 2. **Exchange addresses.** Both poll the server until it hands each the other's
@@ -46,13 +46,15 @@ all belong to it.
 
 ```rust
 use obsidian_rendezvous::client::{create_room, join_room, ClientConfig};
+use obsidian_rendezvous::proto::format_code;
 
 let cfg = ClientConfig::new(server_addr);
 // Host:
-let room = create_room(&cfg)?;
-show_code(room.code());
+let room = create_room(&cfg, "Val")?;
+show_code(&format_code(room.code())); // "KQFD-W2X7"
 let link = room.wait_for_guest(Duration::from_secs(15 * 60))?;
-// Guest: let link = join_room(&cfg, &typed_code)?;
+// Guest: let link = join_room(&cfg, &typed_code, "Dana")?; // dash and case optional
+// link.peer_name is the other DJ's name.
 
 let report = obsidian_engine::run_peer_with_socket(
     PeerConfig { peer: link.peer_addr, bind: link.socket.local_addr()?, ..cfg },
@@ -70,7 +72,7 @@ handoff. `link.is_host` is a stable tiebreak for who leads first;
 ```sh
 cargo run --bin rendezvous-server                     # udp 0.0.0.0:3478
 cargo run --bin obsidian-probe -- create --server 127.0.0.1:3478
-cargo run --bin obsidian-probe -- join ABC234 --server 127.0.0.1:3478
+cargo run --bin obsidian-probe -- join ABCD-2345 --server 127.0.0.1:3478
 ```
 
 `obsidian-probe` with no arguments asks for the server and a code, so a

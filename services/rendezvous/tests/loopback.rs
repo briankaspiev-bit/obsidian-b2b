@@ -17,10 +17,10 @@ fn start_server() -> SocketAddr {
 }
 
 fn pair(cfg: ClientConfig) -> (Connection, Connection) {
-    let host = create_room(&cfg).unwrap();
+    let host = create_room(&cfg, "Val").unwrap();
     let code = host.code().to_lowercase();
     let guest_cfg = cfg.clone();
-    let guest = thread::spawn(move || join_room(&guest_cfg, &code).unwrap());
+    let guest = thread::spawn(move || join_room(&guest_cfg, &code, "Dana").unwrap());
     let h = host.wait_for_guest(Duration::from_secs(10)).unwrap();
     (h, guest.join().unwrap())
 }
@@ -56,6 +56,7 @@ fn connects_directly_when_nothing_blocks() {
     assert_eq!((h.path, g.path), (Path::Direct, Path::Direct));
     assert!(h.is_host && !g.is_host);
     assert_eq!(h.session, g.session);
+    assert_eq!((h.peer_name.as_str(), g.peer_name.as_str()), ("Dana", "Val"));
     assert_eq!(h.peer_addr.port(), g.socket.local_addr().unwrap().port());
     exchange_media(&h, &g);
 }
@@ -74,11 +75,11 @@ fn falls_back_to_relay_and_forwards_media() {
 #[test]
 fn one_side_failing_puts_both_on_relay() {
     let server = start_server();
-    let host = create_room(&ClientConfig::new(server)).unwrap();
+    let host = create_room(&ClientConfig::new(server), "Val").unwrap();
     let code = host.code().to_string();
     let mut relay_cfg = ClientConfig::new(server);
     relay_cfg.force_relay = true;
-    let guest = thread::spawn(move || join_room(&relay_cfg, &code).unwrap());
+    let guest = thread::spawn(move || join_room(&relay_cfg, &code, "Dana").unwrap());
     let h = host.wait_for_guest(Duration::from_secs(10)).unwrap();
     let g = guest.join().unwrap();
     assert_eq!((h.path, g.path), (Path::Relay, Path::Relay));
@@ -90,19 +91,22 @@ fn bad_code_and_full_room_are_reported() {
     let server = start_server();
     let cfg = ClientConfig::new(server);
     assert!(matches!(
-        join_room(&cfg, "ZZZZZZ"),
+        join_room(&cfg, "ZZZZ-ZZZZ", "Dana"),
         Err(Error::RoomNotFound)
     ));
     let (_h, _g) = pair(cfg.clone());
     // The pair's room is full; a new room code is needed for a third DJ.
-    let host = create_room(&cfg).unwrap();
+    let host = create_room(&cfg, "Val").unwrap();
     let code = host.code().to_string();
     let c2 = cfg.clone();
     let code2 = code.clone();
-    let t = thread::spawn(move || join_room(&c2, &code2));
+    let t = thread::spawn(move || join_room(&c2, &code2, "Dana"));
     let _first = host.wait_for_guest(Duration::from_secs(10)).unwrap();
     t.join().unwrap().unwrap();
-    assert!(matches!(join_room(&cfg, &code), Err(Error::RoomFull)));
+    assert!(matches!(
+        join_room(&cfg, &code, "Dana"),
+        Err(Error::RoomFull)
+    ));
 }
 
 #[test]
@@ -112,6 +116,6 @@ fn unreachable_server_is_reported() {
         .unwrap()
         .local_addr()
         .unwrap();
-    let r = create_room(&ClientConfig::new(dead));
+    let r = create_room(&ClientConfig::new(dead), "Val");
     assert!(matches!(r, Err(Error::ServerUnreachable)), "{:?}", r.err());
 }

@@ -15,7 +15,10 @@ pub const VERSION: u8 = 1;
 /// Room codes avoid look-alike characters (0/O, 1/I/L) so they survive being
 /// read out over a phone call.
 pub const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-pub const CODE_LEN: usize = 6;
+/// Shown to people as `XXXX-XXXX`; see [`format_code`].
+pub const CODE_LEN: usize = 8;
+/// Longest display name kept, in bytes.
+pub const MAX_NAME_LEN: usize = 64;
 
 pub type Token = [u8; 16];
 pub type SessionId = [u8; 8];
@@ -63,11 +66,14 @@ pub enum Msg {
     // client -> server
     Create {
         req: u32,
+        /// Display name shown to the other DJ (truncated to 64 bytes).
+        name: String,
         local: Option<SocketAddr>,
     },
     Join {
         req: u32,
         code: String,
+        name: String,
         local: Option<SocketAddr>,
     },
     Poll {
@@ -102,6 +108,7 @@ pub enum Msg {
         observed: SocketAddr,
         peer_public: SocketAddr,
         peer_local: Option<SocketAddr>,
+        peer_name: String,
     },
     Decision {
         path: PathDecision,
@@ -146,15 +153,22 @@ impl Msg {
         w.bytes(&MAGIC);
         w.u8(VERSION);
         match self {
-            Msg::Create { req, local } => {
+            Msg::Create { req, name, local } => {
                 w.u8(T_CREATE);
                 w.u32(*req);
+                w.str(name);
                 w.opt_addr(*local);
             }
-            Msg::Join { req, code, local } => {
+            Msg::Join {
+                req,
+                code,
+                name,
+                local,
+            } => {
                 w.u8(T_JOIN);
                 w.u32(*req);
                 w.str(code);
+                w.str(name);
                 w.opt_addr(*local);
             }
             Msg::Poll { token } => {
@@ -202,6 +216,7 @@ impl Msg {
                 observed,
                 peer_public,
                 peer_local,
+                peer_name,
             } => {
                 w.u8(T_PEER);
                 w.bytes(session);
@@ -209,6 +224,7 @@ impl Msg {
                 w.addr(*observed);
                 w.addr(*peer_public);
                 w.opt_addr(*peer_local);
+                w.str(peer_name);
             }
             Msg::Decision { path } => {
                 w.u8(T_DECISION);
@@ -247,11 +263,13 @@ impl Msg {
         let msg = match packet[3] {
             T_CREATE => Msg::Create {
                 req: r.u32()?,
+                name: r.str()?,
                 local: r.opt_addr()?,
             },
             T_JOIN => Msg::Join {
                 req: r.u32()?,
                 code: r.str()?,
+                name: r.str()?,
                 local: r.opt_addr()?,
             },
             T_POLL => Msg::Poll { token: r.array()? },
@@ -280,6 +298,7 @@ impl Msg {
                 observed: r.addr()?,
                 peer_public: r.addr()?,
                 peer_local: r.opt_addr()?,
+                peer_name: r.str()?,
             },
             T_DECISION => Msg::Decision {
                 path: match r.u8()? {
@@ -313,6 +332,25 @@ pub fn normalize_code(code: &str) -> String {
         .filter(|c| !c.is_whitespace() && *c != '-')
         .map(|c| c.to_ascii_uppercase())
         .collect()
+}
+
+/// `ABCD2345` -> `ABCD-2345`, the form the app shows.
+pub fn format_code(code: &str) -> String {
+    let code = normalize_code(code);
+    if code.len() == CODE_LEN {
+        format!("{}-{}", &code[..CODE_LEN / 2], &code[CODE_LEN / 2..])
+    } else {
+        code
+    }
+}
+
+/// Cuts a name to [`MAX_NAME_LEN`] bytes without splitting a character.
+pub fn clamp_name(name: &str) -> String {
+    let mut end = name.len().min(MAX_NAME_LEN);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    name[..end].trim().to_string()
 }
 
 pub fn is_valid_code(code: &str) -> bool {
@@ -415,14 +453,17 @@ mod tests {
         let b: SocketAddr = "[2001:db8::1]:5000".parse().unwrap();
         let msgs = vec![
             Msg::Create {
+                name: "Val".into(),
                 req: 7,
                 local: Some(a),
             },
             Msg::Create {
+                name: "Val".into(),
                 req: 7,
                 local: None,
             },
             Msg::Join {
+                name: "Val".into(),
                 req: 9,
                 code: "ABC234".into(),
                 local: Some(b),
@@ -446,6 +487,7 @@ mod tests {
             },
             Msg::Waiting { observed: a },
             Msg::Peer {
+                peer_name: "Dana".into(),
                 session: [1; 8],
                 is_host: true,
                 observed: a,
@@ -487,9 +529,19 @@ mod tests {
 
     #[test]
     fn codes_normalize() {
-        assert_eq!(normalize_code(" abc-23x "), "ABC23X");
-        assert!(is_valid_code("ABC23X"));
-        assert!(!is_valid_code("ABC0OX"));
-        assert!(!is_valid_code("ABC23"));
+        assert_eq!(normalize_code(" abcd-23xy "), "ABCD23XY");
+        assert!(is_valid_code("ABCD23XY"));
+        assert!(!is_valid_code("ABCD0OXY"));
+        assert!(!is_valid_code("ABCD23X"));
+        assert_eq!(format_code("abcd23xy"), "ABCD-23XY");
+    }
+
+    #[test]
+    fn names_are_clamped_on_char_boundaries() {
+        assert_eq!(clamp_name("  Val "), "Val");
+        let long = "é".repeat(40); // 80 bytes
+        let c = clamp_name(&long);
+        assert_eq!(c.len(), 64);
+        assert!(c.chars().all(|ch| ch == 'é'));
     }
 }

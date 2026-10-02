@@ -16,6 +16,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use obsidian_rendezvous::client::{create_room, join_room, ClientConfig, Connection, Path};
+use obsidian_rendezvous::proto::format_code;
 
 const MAGIC: [u8; 2] = [0x0B, 0x50];
 const PING: u8 = 1;
@@ -109,22 +110,25 @@ fn run(mut args: Args) -> ExitCode {
         eprintln!("Could not resolve server address {server:?}");
         return ExitCode::FAILURE;
     };
+    let name = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "DJ".into());
     let mut cfg = ClientConfig::new(server_addr);
     cfg.force_relay = args.force_relay;
 
     let conn = match mode {
         Mode::Create => {
-            let room = match create_room(&cfg) {
+            let room = match create_room(&cfg, &name) {
                 Ok(r) => r,
                 Err(e) => return fail(e),
             };
-            println!("Room code: {}", room.code());
+            println!("Room code: {}", format_code(room.code()));
             println!("Send this code to the other DJ. Waiting for them to join...");
             room.wait_for_guest(Duration::from_secs(15 * 60))
         }
         Mode::Join(code) => {
             println!("Joining {code}...");
-            join_room(&cfg, &code)
+            join_room(&cfg, &code, &name)
         }
     };
     let conn = match conn {
@@ -135,6 +139,7 @@ fn run(mut args: Args) -> ExitCode {
         Path::Direct => format!("DIRECT to {}", conn.peer_addr),
         Path::Relay => format!("RELAY via {}", conn.peer_addr),
     };
+    println!("Paired with {}.", conn.peer_name);
     println!(
         "Connected {how} (your public address: {})",
         conn.public_addr

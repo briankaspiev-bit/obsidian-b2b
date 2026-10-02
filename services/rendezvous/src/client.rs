@@ -8,7 +8,7 @@
 //! ```no_run
 //! use obsidian_rendezvous::client::{ClientConfig, create_room};
 //! let cfg = ClientConfig::new("rendezvous.example.com:3478".parse().unwrap());
-//! let host = create_room(&cfg).unwrap();
+//! let host = create_room(&cfg, "Val").unwrap();
 //! println!("room code: {}", host.code());
 //! let link = host.wait_for_guest(std::time::Duration::from_secs(600)).unwrap();
 //! // obsidian_engine::run_peer_with_socket(PeerConfig { peer: link.peer_addr, .. }, link.socket)
@@ -110,6 +110,8 @@ pub struct Connection {
     pub path: Path,
     /// True for the DJ who created the room.
     pub is_host: bool,
+    /// The other DJ's display name.
+    pub peer_name: String,
     /// Our address as the internet sees it.
     pub public_addr: SocketAddr,
     /// Shared by both peers; usable as a key-derivation input or log tag.
@@ -137,6 +139,7 @@ pub struct HostRoom {
 }
 
 impl HostRoom {
+    /// Raw code, e.g. `ABCD2345`. Show it with [`crate::proto::format_code`].
     pub fn code(&self) -> &str {
         &self.code
     }
@@ -148,14 +151,23 @@ impl HostRoom {
 }
 
 /// Binds a fresh socket and creates a room.
-pub fn create_room(cfg: &ClientConfig) -> Result<HostRoom> {
-    create_room_with_socket(cfg, bind_for(cfg.server)?)
+/// `name` is shown to the other DJ.
+pub fn create_room(cfg: &ClientConfig, name: &str) -> Result<HostRoom> {
+    create_room_with_socket(cfg, name, bind_for(cfg.server)?)
 }
 
-pub fn create_room_with_socket(cfg: &ClientConfig, socket: UdpSocket) -> Result<HostRoom> {
+pub fn create_room_with_socket(
+    cfg: &ClientConfig,
+    name: &str,
+    socket: UdpSocket,
+) -> Result<HostRoom> {
     let local = local_candidate(&socket, cfg.server);
     let req = u32::from_be_bytes(random_bytes());
-    let msg = Msg::Create { req, local };
+    let msg = Msg::Create {
+        req,
+        name: name.to_string(),
+        local,
+    };
     let reply = request(&socket, cfg.server, &msg, |m| match m {
         Msg::Created { req: r, .. } | Msg::Error { req: r, .. } => *r == req,
         _ => false,
@@ -173,13 +185,15 @@ pub fn create_room_with_socket(cfg: &ClientConfig, socket: UdpSocket) -> Result<
 }
 
 /// Binds a fresh socket, joins the room and connects to its host.
-pub fn join_room(cfg: &ClientConfig, code: &str) -> Result<Connection> {
-    join_room_with_socket(cfg, code, bind_for(cfg.server)?)
+/// Accepts the code with or without its dash, in any case.
+pub fn join_room(cfg: &ClientConfig, code: &str, name: &str) -> Result<Connection> {
+    join_room_with_socket(cfg, code, name, bind_for(cfg.server)?)
 }
 
 pub fn join_room_with_socket(
     cfg: &ClientConfig,
     code: &str,
+    name: &str,
     socket: UdpSocket,
 ) -> Result<Connection> {
     let local = local_candidate(&socket, cfg.server);
@@ -187,6 +201,7 @@ pub fn join_room_with_socket(
     let msg = Msg::Join {
         req,
         code: code.to_string(),
+        name: name.to_string(),
         local,
     };
     let reply = request(&socket, cfg.server, &msg, |m| match m {
@@ -288,6 +303,7 @@ struct PeerInfo {
     is_host: bool,
     observed: SocketAddr,
     candidates: Vec<SocketAddr>,
+    peer_name: String,
 }
 
 fn connect(
@@ -318,6 +334,7 @@ fn connect(
         peer_addr,
         path,
         is_host: peer.is_host,
+        peer_name: peer.peer_name,
         public_addr: peer.observed,
         session: peer.session,
         server: cfg.server,
@@ -350,6 +367,7 @@ fn wait_for_peer(
                     observed,
                     peer_public,
                     peer_local,
+                    peer_name,
                 } => {
                     let mut candidates = vec![peer_public];
                     // Only worth trying a LAN address when it differs from the public one.
@@ -362,6 +380,7 @@ fn wait_for_peer(
                         is_host,
                         observed,
                         candidates,
+                        peer_name,
                     });
                 }
                 Msg::Error { code, .. } => return Err(code.into()),
