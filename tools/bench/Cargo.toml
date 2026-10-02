@@ -1,0 +1,25 @@
+[package]
+name = "obsidian-bench"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Network-impairment test bench: generates test music, runs two peers through the netem proxy per profile, scores delay stability, dropouts, quality and beat alignment."
+
+[[bin]]
+name = "obsidian-bench"
+path = "src/main.rs"
+
+[dependencies]
+obsidian-engine.workspace = true
+obsidian-codec.workspace = true
+obsidian-align.workspace = true
+obsidian-clock.workspace = true
+obsidian-jitter.workspace = true
+obsidian-protocol.workspace = true
+obsidian-netem-proxy = { path = "../netem-proxy" }
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hound.workspace = true
+rand.workspace = true

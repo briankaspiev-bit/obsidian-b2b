@@ -10,8 +10,10 @@ Early stage. What is here today:
 | `notes/` | Implementation notes. |
 | `previews/` | Self-contained HTML build of the UI preview. |
 | `docs/remote-b2b-feasibility-report.md` | Feasibility report: latency model, engine choice, rights, first milestone. |
+| `crates/` | Rust booth engine: wire format, Opus codec, clock sync, fixed-delay jitter buffer, beat alignment, peer session, `obsidian-peer` CLI. See `docs/engine.md`. |
+| `tools/netem-proxy`, `tools/netem-profiles`, `tools/bench` | Bad-network test bench: UDP impairment proxy, lab profiles, real-time and virtual-time benches. Results in `docs/engine-results.md`. |
 
-Coming next (per the feasibility report's layout): `crates/` for the Rust real-time audio engine, and `tools/` for benchmarks and the master-mix merge tool.
+Coming next: real audio devices and connect-by-code so two people can try a remote B2B on two Windows laptops (plan in `docs/engine.md`).
 
 ## Run the UI
 
@@ -20,4 +22,12 @@ cd apps/desktop/ui
 npm install
 npm run dev
 npm test
+```
+
+## Run the engine bench
+
+```
+cargo test --workspace --release
+cargo run --release -p obsidian-bench -- sim --minutes 60      # virtual time, about a minute per case
+cargo run --release -p obsidian-bench -- run --jobs 1          # real-time, two peers + proxy, ~17 min
 ```
