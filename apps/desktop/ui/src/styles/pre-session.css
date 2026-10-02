@@ -123,9 +123,9 @@
 }
 .home__cards {
   width: 100%;
-  max-width: 860px;
+  max-width: 1180px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 20px;
 }
 .home-card {
@@ -621,4 +621,23 @@
     animation: none;
     border-top-color: var(--cue);
   }
+}
+
+/* Practice: the third card, quieter than the two ways into a real room. */
+.home-card--practice {
+  border-style: dashed;
+}
+.home-card__track {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13px;
+}
+.home-card__track-name {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

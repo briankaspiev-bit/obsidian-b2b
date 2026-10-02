@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useEngineMode } from '../app/engineMode';
 import { SessionHeader } from '../live-session/SessionHeader';
 import { useEngine, useRoomState } from '../session/useSession';
@@ -8,6 +8,10 @@ export function HomeScreen() {
   const engine = useEngine();
   const room = useRoomState();
   const [code, setCode] = useState('');
+  const [track, setTrack] = useState<File | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  // Errors from opening a room and from starting practice share one slot; show it where it came from.
+  const [lastTried, setLastTried] = useState<'room' | 'practice'>('room');
   const { mode, canSwitch, setMode } = useEngineMode();
 
   const onJoin = (e: FormEvent) => {
@@ -60,13 +64,21 @@ export function HomeScreen() {
               Start a booth
             </h2>
             <p className="home-card__text">Get a code and send it to the DJ you want to play with.</p>
-            {room.createError && (
+            {room.createError && lastTried === 'room' && (
               <p className="home-card__error fade-in" role="alert">
                 {room.createError}
               </p>
             )}
-            <button type="button" className="btn btn--primary" onClick={engine.createRoom} disabled={room.creating}>
-              {room.creating ? 'OPENING ROOM…' : 'CREATE ROOM'}
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => {
+                setLastTried('room');
+                engine.createRoom();
+              }}
+              disabled={room.creating}
+            >
+              {room.creating && lastTried === 'room' ? 'OPENING ROOM…' : 'CREATE ROOM'}
             </button>
           </section>
 
@@ -98,6 +110,44 @@ export function HomeScreen() {
               {room.joining ? 'FINDING ROOM…' : 'JOIN ROOM'}
             </button>
           </form>
+
+          <section className="home-card home-card--practice" aria-labelledby="practice-title">
+            <h2 id="practice-title" className="home-card__title">
+              Practice
+            </h2>
+            <p className="home-card__text">
+              A Ghost DJ plays from London. Match their beat, then take over. Headphones on.
+            </p>
+            <div className="home-card__track">
+              <span className="home-card__track-name">{track ? track.name : 'Built-in groove'}</span>
+              <button type="button" className="link-btn" onClick={() => picker.current?.click()}>
+                {track ? 'Change' : 'Use my own track'}
+              </button>
+              <input
+                ref={picker}
+                type="file"
+                accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg"
+                hidden
+                onChange={(e) => setTrack(e.target.files?.[0] ?? null)}
+              />
+            </div>
+            {room.createError && lastTried === 'practice' && (
+              <p className="home-card__error fade-in" role="alert">
+                {room.createError}
+              </p>
+            )}
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={() => {
+                setLastTried('practice');
+                engine.startPractice(track);
+              }}
+              disabled={room.creating}
+            >
+              {room.creating && lastTried === 'practice' ? 'STARTING…' : 'PRACTICE WITH THE GHOST DJ'}
+            </button>
+          </section>
         </div>
 
         {canSwitch && (

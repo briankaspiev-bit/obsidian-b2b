@@ -1,0 +1,357 @@
+/* The DJ view: waveforms, phase meter and deck controls on the Live Session screen. */
+
+.deck {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  column-gap: 14px;
+  row-gap: 10px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+/* ---- Lanes ----------------------------------------------------------- */
+
+.deck__labels {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  row-gap: 10px;
+  min-width: 0;
+}
+.deck__label {
+  --accent: var(--cue);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding-left: 12px;
+  border-left: 3px solid var(--accent);
+  min-width: 0;
+}
+.deck__label[data-role='onAir'] {
+  --accent: var(--on-air);
+}
+.deck__who {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck__bpm {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.deck__bpm small {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--text-3);
+}
+.deck__meta,
+.deck__note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck__note {
+  color: var(--text-3);
+}
+.deck__air,
+.deck__sync {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.deck__air {
+  background: var(--on-air);
+  color: var(--on-air-ink);
+}
+.deck__sync {
+  border: 1px solid var(--cue);
+  color: var(--cue);
+}
+.deck__label .deck__sync + .deck__air {
+  margin-top: 2px;
+}
+
+.deck__waves {
+  display: block;
+  width: 100%;
+  height: clamp(160px, 24vh, 240px);
+  border-radius: 8px;
+  background: #07070a;
+  cursor: ns-resize;
+}
+
+/* ---- Phase meter ------------------------------------------------------ */
+
+.deck__phase {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
+  align-items: center;
+  column-gap: 14px;
+}
+.deck__phase-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 6px;
+}
+.deck__phase-who {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--text-3);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deck__bar {
+  display: inline-flex;
+  gap: 5px;
+}
+.deck__bar i {
+  width: 22px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--line-2);
+  transition: background 60ms linear;
+}
+.deck__bar i[data-lit='on'] {
+  background: var(--text);
+}
+.deck__bar i:first-child[data-lit='on'] {
+  background: var(--on-air);
+}
+/* Bars unknown: every beat flashes the whole row instead. */
+.deck__bar[data-flash='on'] i[data-lit='unknown'] {
+  background: var(--text-2);
+}
+
+.deck__ruler {
+  position: relative;
+  height: 30px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255, 194, 77, 0.12), transparent 30%, transparent 70%, rgba(255, 194, 77, 0.12)), var(--surface-raised);
+  border: 1px solid var(--line-2);
+}
+.deck__ruler-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 2%);
+  width: 4%;
+  background: rgba(127, 224, 168, 0.18);
+}
+.deck__ruler-centre {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text-3);
+}
+.deck__ruler-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 6px;
+  margin-left: -3px;
+  border-radius: 3px;
+  background: var(--attention);
+  box-shadow: 0 0 10px rgba(255, 194, 77, 0.6);
+  transition: left 120ms linear;
+}
+.deck__phase[data-tone='ok'] .deck__ruler-mark {
+  background: var(--ok);
+  box-shadow: 0 0 10px rgba(127, 224, 168, 0.6);
+}
+.deck__ruler-label {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--text-3);
+}
+.deck__ruler-label--l {
+  left: 8px;
+}
+.deck__ruler-label--r {
+  right: 8px;
+}
+.deck__phase-words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.deck__phase-main {
+  font-size: 15px;
+  font-weight: 600;
+}
+.deck__phase[data-tone='ok'] .deck__phase-main {
+  color: var(--ok);
+}
+.deck__phase[data-tone='off'] .deck__phase-main {
+  color: var(--attention);
+}
+.deck__phase[data-tone='idle'] .deck__phase-main {
+  color: var(--text-2);
+  font-weight: 400;
+  font-size: 13px;
+}
+.deck__phase-sub {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ---- Controls --------------------------------------------------------- */
+
+.deck__controls {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+.deck__group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.deck__group--sliders {
+  gap: 18px;
+  margin-left: auto;
+}
+.deck__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line-3);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.deck__btn:hover {
+  border-color: var(--text-3);
+}
+.deck__btn:active {
+  transform: translateY(1px);
+}
+.deck__btn[aria-pressed='true'] {
+  border-color: var(--cue);
+  color: var(--cue);
+  background: rgba(108, 196, 255, 0.08);
+}
+.deck__key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  min-width: 18px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--line-3);
+  color: var(--text-3);
+  text-align: center;
+}
+.deck__slider {
+  display: grid;
+  grid-template-columns: auto 130px 40px;
+  align-items: center;
+  gap: 8px;
+}
+.deck__slider-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.deck__slider input {
+  width: 100%;
+  accent-color: var(--cue);
+}
+.deck__slider-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- The Live Session screen in DJ mode -------------------------------- */
+
+.ls[data-dj] .ls-stage {
+  justify-content: flex-start;
+  gap: 14px;
+  padding-top: 14px;
+}
+.ls[data-dj] .ls-timer {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  z-index: 2;
+}
+.ls[data-dj] .ls-timer__phrase {
+  margin: 0;
+}
+.ls[data-dj] .ls-timer__value {
+  font-size: 22px;
+}
+.ls[data-dj] .ls-booth {
+  row-gap: 10px;
+}
+.ls[data-dj] .dj-panel__photo,
+.ls[data-dj] .dj-panel__track,
+.ls[data-dj] .ls-booth__under-left,
+.ls[data-dj] .ls-booth__under-right {
+  display: none;
+}
+/* The waveforms carry the music now: the booth row only says who has the mix. */
+.ls[data-dj] .dj-panel__plate {
+  gap: 10px;
+  padding: 14px 20px;
+}
+.ls[data-dj] .dj-panel__name {
+  font-size: 26px;
+}
+.ls[data-dj] .ls-booth__under-center {
+  grid-column: 2;
+}
+.ls[data-dj] .takeover__button {
+  width: 112px;
+}
+.deck__hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.deck__hint kbd {
+  margin: 0 2px;
+}

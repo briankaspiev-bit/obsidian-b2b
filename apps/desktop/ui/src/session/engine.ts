@@ -1,3 +1,4 @@
+import type { DeckAction, DeckFeed } from './deck';
 import type { LinkState, RoomState, SessionState, StereoLevel } from './types';
 
 type Unsubscribe = () => void;
@@ -29,6 +30,11 @@ export interface SessionEngine {
   setBoothReady(ready: boolean): void;
   /** Back to Home. Also used after a session ends. */
   leaveRoom(): void;
+  /**
+   * Practice alone: your deck (a picked music file, or a built-in groove)
+   * against a simulated DJ on air at the other end of a long-distance link.
+   */
+  startPractice(track: File | null): void;
 
   // --- During the session ---------------------------------------------------
 
@@ -55,6 +61,13 @@ export interface SessionEngine {
    */
   emergencyTakeOver(): void;
   endSession(): void;
+
+  // --- The DJ view ----------------------------------------------------------
+
+  /** Waveforms, beats and deck state for the DJ view; null when there's nothing to show. */
+  getDeckFeed(): DeckFeed | null;
+  /** Deck buttons, faders and (in practice) bringing the simulated DJ back. */
+  deck(action: DeckAction): void;
 }
 
 /** How long the HANDOFF state shows before ownership flips. */

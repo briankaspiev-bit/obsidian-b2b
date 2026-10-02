@@ -267,6 +267,38 @@ fn live_set_partner_volume(value: f32, booth: State<'_, Booth>) -> CmdResult<()>
     with_live(&booth, |l| l.set_partner_volume(value))
 }
 
+/// The picked file's name (sent percent-encoded), reduced to a plain file name
+/// so it can't point outside the tracks folder.
+fn track_file_name(header: Option<&str>) -> String {
+    let raw = header.unwrap_or("");
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut it = raw.bytes();
+    while let Some(b) = it.next() {
+        if b == b'%' {
+            let hex: Vec<u8> = it.by_ref().take(2).collect();
+            if let Some(v) = std::str::from_utf8(&hex).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                bytes.push(v);
+                continue;
+            }
+        }
+        bytes.push(b);
+    }
+    let decoded = String::from_utf8_lossy(&bytes);
+    let name: String = decoded
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect();
+    let name = name.trim().trim_start_matches('.').to_string();
+    if name.is_empty() {
+        "track.mp3".into()
+    } else {
+        name
+    }
+}
+
 /// A music file picked in the app (the body is the file; `x-name` its name).
 /// Kept in the app's cache so the deck can open it; returns its path.
 #[tauri::command]
@@ -274,21 +306,7 @@ fn load_track(request: tauri::ipc::Request<'_>, app: AppHandle) -> CmdResult<Str
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err("No file came through".into());
     };
-    let name = request
-        .headers()
-        .get("x-name")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("track.mp3");
-    // Only the file name, and nothing that could climb out of the folder.
-    let name: String = std::path::Path::new(name)
-        .file_name()
-        .map(|n| {
-            n.to_string_lossy()
-                .chars()
-                .filter(|c| !matches!(c, '/' | '\\' | ':'))
-                .collect()
-        })
-        .unwrap_or_else(|| "track.mp3".into());
+    let name = track_file_name(request.headers().get("x-name").and_then(|v| v.to_str().ok()));
     let dir = app.path().app_cache_dir().map_err(err)?.join("tracks");
     std::fs::create_dir_all(&dir).map_err(err)?;
     let path = dir.join(name);
@@ -556,4 +574,19 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Obsidian");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::track_file_name;
+
+    #[test]
+    fn picked_file_names_stay_plain_file_names() {
+        assert_eq!(track_file_name(Some("Caf%C3%A9%20Mix.mp3")), "Café Mix.mp3");
+        assert_eq!(track_file_name(Some("..%2F..%2Fevil.exe")), "evil.exe");
+        assert_eq!(track_file_name(Some("C%3A%5CUsers%5Cx%5Ca.wav")), "a.wav");
+        assert_eq!(track_file_name(Some("..")), "track.mp3");
+        assert_eq!(track_file_name(None), "track.mp3");
+        assert_eq!(track_file_name(Some("100%")), "100%");
+    }
 }
