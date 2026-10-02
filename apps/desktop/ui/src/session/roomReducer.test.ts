@@ -78,4 +78,18 @@ describe('roomReducer', () => {
     });
     expect(s.check.status).toBe('attention');
   });
+
+  it('learning more about the other DJ keeps their readiness', () => {
+    const s = run(inBooth(), { type: 'remoteReady', ready: true }, { type: 'remoteProfile', remote: { name: 'Dana', city: 'Leeds' } });
+    expect(s.remotePresence).toBe('ready');
+    expect(s.remote?.city).toBe('Leeds');
+  });
+
+  it('a failed create shows on Home and clears when you try to join', () => {
+    let s = run(initialRoom({ name: 'Val', city: '' }), { type: 'createStarted' }, { type: 'createFailed', error: 'No server' });
+    expect(s.creating).toBe(false);
+    expect(s.createError).toBe('No server');
+    s = run(s, { type: 'joinStarted' });
+    expect(s.createError).toBeNull();
+  });
 });

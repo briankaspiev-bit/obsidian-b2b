@@ -143,6 +143,9 @@ export interface RoomState {
   /** True while a join is being looked up. */
   joining: boolean;
   joinError: string | null;
+  /** True while a new room is being opened. */
+  creating: boolean;
+  createError: string | null;
   local: { name: string; city: string; photoUrl?: string };
   remote: { name: string; city: string; photoUrl?: string } | null;
   remotePresence: RemotePresence;

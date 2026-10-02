@@ -6,6 +6,7 @@
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS, type SessionEngine } from './engine';
 import { initialRoom, normalizeCode, roomAfterRemoteReady, roomReducer, type RoomAction } from './roomReducer';
 import { sessionReducer, type SessionAction } from './sessionReducer';
+import { createListeners, type Listener } from './listeners';
 import type { AudioDevice, CheckStepId, LinkState, RoomState, SessionState, StereoLevel, TrackInfo } from './types';
 // Placeholder photos for the mock DJs.
 import valPhoto from '../assets/mock/val.jpg';
@@ -29,23 +30,6 @@ const CRATES: Record<string, Omit<TrackInfo, 'remainingSec'>[]> = {
 
 const SILENT: StereoLevel = { left: -Infinity, right: -Infinity };
 const BPM = 124;
-
-type Listener = () => void;
-
-function createListeners() {
-  const set = new Set<Listener>();
-  return {
-    add(l: Listener) {
-      set.add(l);
-      return () => {
-        set.delete(l);
-      };
-    },
-    emit() {
-      set.forEach((l) => l());
-    },
-  };
-}
 
 // What a Windows booth with a USB interface might list.
 const INPUTS: AudioDevice[] = [
@@ -152,6 +136,9 @@ export class MockSessionEngine implements SessionEngine {
 
   getRoom = () => this.room;
   subscribeRoom = (l: Listener) => this.roomListeners.add(l);
+
+  setLocalProfile = (profile: { name: string; city: string }) =>
+    this.roomDispatch({ type: 'setLocal', local: { ...this.room.local, ...profile } });
 
   createRoom = () => {
     if (this.room.phase !== 'home') return;

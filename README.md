@@ -6,7 +6,7 @@ Early stage. What is here today:
 
 | Path | What it is |
 |---|---|
-| `apps/desktop/ui/` | Desktop app UI (React + TypeScript + Vite): Home, Booth Check and Live Session screens, running on a mock engine. See its README. |
+| `apps/desktop/ui/` | Windows desktop app: Tauri shell (`src-tauri/`) around the React UI (Home, Booth Check, Live Session). Real room codes, devices and booth link; demo engine one click away. See its README. |
 | `notes/` | Implementation notes. |
 | `previews/` | Self-contained HTML build of the UI preview. |
 | `docs/remote-b2b-feasibility-report.md` | Feasibility report: latency model, engine choice, rights, first milestone. |

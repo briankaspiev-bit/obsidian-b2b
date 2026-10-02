@@ -83,8 +83,8 @@ export function BoothCheckScreen() {
             <LevelMeter
               title={`FROM ${remoteName.toUpperCase()}`}
               getLevel={engine.getRemoteLevel}
-              quietText="A test tone plays during the check"
-              noSignalText="No test tone arrived"
+              quietText="Their mixer shows here"
+              noSignalText="Nothing coming through yet"
               expectingAudio={false}
             />
 
@@ -189,6 +189,11 @@ function DeviceField(props: {
         onChange={(e) => props.onChange(e.target.value)}
         aria-describedby={`${props.id}-hint`}
       >
+        {props.devices.length === 0 && (
+          <option value="" disabled>
+            No audio devices found
+          </option>
+        )}
         {props.devices.map((d) => (
           <option key={d.id} value={d.id}>
             {d.label} &middot; {d.detail}
@@ -253,6 +258,7 @@ function ReadyBar({ room, remoteName }: { room: RoomState; remoteName: string })
 
   let line: string;
   if (room.remotePresence === 'waiting') line = `Waiting for ${remoteName} to join`;
+  else if (room.check.status === 'attention') line = 'Sort out the steps marked yellow, then run the check again.';
   else if (!passed) line = 'Run the booth check first. It takes a few seconds.';
   else if (room.localReady && !remoteReady) line = `Waiting for ${remoteName} to press ready`;
   else if (!room.localReady && remoteReady) line = `${remoteName} is ready. Press ready when you are.`;
