@@ -2,6 +2,9 @@
 //! bench's virtual-time simulator. Time is plain seconds (f64) so the same model
 //! runs in real time or simulated time.
 
+pub mod link;
+pub use link::{builtin_profile, builtin_profiles, Link};
+
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};

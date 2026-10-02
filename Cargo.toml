@@ -8,6 +8,9 @@ members = [
     "crates/align",
     "crates/engine",
     "crates/engine-cli",
+    "crates/audio-io",
+    "crates/testaudio",
+    "crates/live",
     "tools/netem-proxy",
     "tools/bench",
 ]
@@ -26,6 +29,9 @@ obsidian-clock = { path = "crates/clock" }
 obsidian-jitter = { path = "crates/jitter" }
 obsidian-align = { path = "crates/align" }
 obsidian-engine = { path = "crates/engine" }
+obsidian-audio-io = { path = "crates/audio-io" }
+obsidian-netem-proxy = { path = "tools/netem-proxy" }
+obsidian-testaudio = { path = "crates/testaudio" }
 opus = "0.4"
 hound = "3.5"
 serde = { version = "1", features = ["derive"] }

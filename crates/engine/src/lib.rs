@@ -300,7 +300,7 @@ pub fn run_peer_with_socket(cfg: PeerConfig, sock: UdpSocket) -> Result<PeerRepo
                     } => {
                         sync.lock().unwrap().add(t0_us, t1_us, t2_us, now);
                     }
-                    Packet::Bye => {}
+                    Packet::Bye | Packet::State { .. } => {}
                 }
             }
             Ok(())

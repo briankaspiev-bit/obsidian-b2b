@@ -10,12 +10,12 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use obsidian_clock::sleep_until;
-use obsidian_netem_proxy::{DirStats, Impairer, Profile};
-use std::collections::BinaryHeap;
+use obsidian_netem_proxy::link::direction;
+use obsidian_netem_proxy::{Impairer, Profile};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Parser, Debug)]
@@ -44,110 +44,6 @@ struct Args {
     stats: Option<PathBuf>,
 }
 
-struct Item {
-    at: Instant,
-    seq: u64,
-    data: Vec<u8>,
-}
-impl PartialEq for Item {
-    fn eq(&self, o: &Self) -> bool {
-        self.at == o.at && self.seq == o.seq
-    }
-}
-impl Eq for Item {}
-impl PartialOrd for Item {
-    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(o))
-    }
-}
-impl Ord for Item {
-    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
-        // min-heap
-        o.at.cmp(&self.at).then(o.seq.cmp(&self.seq))
-    }
-}
-
-type Queue = Arc<(Mutex<BinaryHeap<Item>>, Condvar)>;
-
-fn direction(
-    name: &'static str,
-    rx: UdpSocket,
-    tx: UdpSocket,
-    dest: SocketAddr,
-    mut imp: Impairer,
-    t0: Instant,
-    end: Instant,
-) -> (
-    std::thread::JoinHandle<DirStats>,
-    std::thread::JoinHandle<()>,
-) {
-    let q: Queue = Arc::new((Mutex::new(BinaryHeap::new()), Condvar::new()));
-    let q2 = q.clone();
-    let recv = std::thread::Builder::new()
-        .name(format!("{name}-rx"))
-        .spawn(move || {
-            let mut buf = vec![0u8; 65_536];
-            let mut seq = 0u64;
-            rx.set_read_timeout(Some(Duration::from_millis(50)))
-                .unwrap();
-            while Instant::now() < end {
-                let Ok((n, _)) = rx.recv_from(&mut buf) else {
-                    continue;
-                };
-                let now = (Instant::now() - t0).as_secs_f64();
-                match imp.process(now) {
-                    None => {}
-                    Some(at) => {
-                        let at = t0 + Duration::from_secs_f64(at);
-                        seq += 1;
-                        let (m, c) = &*q2;
-                        m.lock().unwrap().push(Item {
-                            at,
-                            seq,
-                            data: buf[..n].to_vec(),
-                        });
-                        c.notify_one();
-                    }
-                }
-            }
-            imp.stats
-        })
-        .unwrap();
-    let send = std::thread::Builder::new()
-        .name(format!("{name}-tx"))
-        .spawn(move || {
-            let (m, c) = &*q;
-            loop {
-                let mut g = m.lock().unwrap();
-                if Instant::now() > end + Duration::from_millis(500) {
-                    return;
-                }
-                match g.peek().map(|i| i.at) {
-                    None => {
-                        let _ = c.wait_timeout(g, Duration::from_millis(20)).unwrap();
-                    }
-                    Some(at) => {
-                        let now = Instant::now();
-                        if at <= now {
-                            let it = g.pop().unwrap();
-                            drop(g);
-                            let _ = tx.send_to(&it.data, dest);
-                        } else if at - now > Duration::from_micros(800) {
-                            let _ = c
-                                .wait_timeout(g, at - now - Duration::from_micros(500))
-                                .unwrap();
-                        } else {
-                            drop(g);
-                            sleep_until(at);
-                        }
-                    }
-                }
-            }
-        })
-        .unwrap();
-    (recv, send)
-}
-
 fn main() -> Result<()> {
     let a = Args::parse();
     let all: Vec<Profile> =
@@ -163,7 +59,7 @@ fn main() -> Result<()> {
     let sa = UdpSocket::bind(a.a_listen)?;
     let sb = UdpSocket::bind(a.b_listen)?;
     let t0 = Instant::now();
-    let end = t0 + Duration::from_secs_f64(a.duration);
+    let stop = Arc::new(AtomicBool::new(false));
     let mk = |p: Profile, seed: u64| Impairer::new(p, seed);
     let (ab_rx, ab_tx) = direction(
         "ab",
@@ -172,7 +68,7 @@ fn main() -> Result<()> {
         a.b_peer,
         mk(pab, a.seed),
         t0,
-        end,
+        stop.clone(),
     );
     let (ba_rx, ba_tx) = direction(
         "ba",
@@ -181,8 +77,10 @@ fn main() -> Result<()> {
         a.a_peer,
         mk(pba, a.seed.wrapping_add(1000)),
         t0,
-        end,
+        stop.clone(),
     );
+    std::thread::sleep(Duration::from_secs_f64(a.duration));
+    stop.store(true, Ordering::Relaxed);
     let s_ab = ab_rx.join().unwrap();
     let s_ba = ba_rx.join().unwrap();
     ab_tx.join().unwrap();

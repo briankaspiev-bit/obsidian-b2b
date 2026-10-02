@@ -11,6 +11,7 @@ Early stage. What is here today:
 | `previews/` | Self-contained HTML build of the UI preview. |
 | `docs/remote-b2b-feasibility-report.md` | Feasibility report: latency model, engine choice, rights, first milestone. |
 | `crates/` | Rust booth engine: wire format, Opus codec, clock sync, fixed-delay jitter buffer, beat alignment, peer session, `obsidian-peer` CLI. See `docs/engine.md`. |
+| `crates/live`, `crates/audio-io` | `obsidian-live`: the engine on real sound cards (Windows build), music-file deck or system audio, TAKE OVER, fader, SYNC, and solo practice with a ghost DJ. How to run it: `docs/live.md`. |
 | `tools/netem-proxy`, `tools/netem-profiles`, `tools/bench` | Bad-network test bench: UDP impairment proxy, lab profiles, real-time and virtual-time benches. Results in `docs/engine-results.md`. |
 
 Coming next: real audio devices and connect-by-code so two people can try a remote B2B on two Windows laptops (plan in `docs/engine.md`).
