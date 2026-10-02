@@ -1,0 +1,27 @@
+[package]
+name = "obsidian-rendezvous"
+version = "0.1.0"
+edition = "2021"
+description = "Room codes, NAT hole punching and UDP relay fallback for Obsidian B2B peers"
+license = "UNLICENSED"
+publish = false
+
+# Standalone until the repo grows a root workspace; the engine can depend on it by path.
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "rendezvous-server"
+path = "src/bin/rendezvous-server.rs"
+
+[[bin]]
+name = "obsidian-probe"
+path = "src/bin/obsidian-probe.rs"
+
+[dependencies]
+getrandom = "0.2"
+
+[profile.release]
+opt-level = 3
