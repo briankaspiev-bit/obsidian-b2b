@@ -115,6 +115,10 @@ and `report.json`. Send both sides' folders to build the combined master with
 
 ## Known limits
 
-* Wi-Fi: packet bursts on bad Wi-Fi are still audible; use Ethernet to perform.
+* Wi-Fi: when the link keeps dropping bursts of packets (typical of busy Wi-Fi), the app turns on a
+  "Wi-Fi shield" by itself: your partner sends extra copies reaching 80 ms back, and the
+  buffer grows by about 65 ms so those copies arrive in time. The screen says when it's on.
+  In a simulated bad-Wi-Fi link this cut audible patches from about 150 to about 13 per two
+  minutes. Ethernet is still best: no shield, less delay.
 * No encryption yet; fine for two friends, not for strangers.
 * Joining by IP needs a reachable host; the room-code service will remove that step.

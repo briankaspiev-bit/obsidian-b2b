@@ -113,6 +113,10 @@ pub struct LiveStatus {
     pub margin_ms: Option<f64>,
     /// Extra delay added so the partner lands on your beat (on air only).
     pub beat_align_ms: f64,
+    /// Wi-Fi shield: you asked the partner for wide redundancy (your incoming link drops
+    /// bursts), and the partner asked you (yours outgoing does).
+    pub shield: bool,
+    pub partner_shield: bool,
     /// Over the last 10 s: frames that needed recovery, and how many were patched over (audible).
     pub recovered_10s: u64,
     pub concealed_10s: u64,
@@ -253,8 +257,23 @@ impl LiveControls {
 }
 
 /// Shared between the receiver and the media thread.
+/// Redundancy for a lossy link (bad Wi-Fi): copies reach 16 frames (80 ms) back,
+/// so a dropout that long is rebuilt instead of patched over.
+const SHIELD: [u64; 6] = [1, 2, 4, 7, 11, 16];
+/// Turn the shield on after this many dropouts too long for the normal copies within
+/// `SHIELD_WINDOW_US`; off after `SHIELD_OFF_US` without one.
+const SHIELD_BURSTS: usize = 2;
+const SHIELD_WINDOW_US: i64 = 30_000_000;
+const SHIELD_OFF_US: i64 = 120_000_000;
+
 struct Remote {
     pb: PlayoutBuffer,
+    /// Highest media seq seen on this stream, and when runs of lost packets longer
+    /// than the normal redundancy covers happened (output clock, µs).
+    last_seq: Option<u32>,
+    long_gaps: VecDeque<i64>,
+    /// The partner asks us to send shielded (wide) redundancy.
+    partner_shield: bool,
     stream_id: Option<u32>,
     /// Bumped whenever the partner's stream (re)starts.
     generation: u64,
@@ -329,6 +348,9 @@ pub fn run_live(
     sock.set_read_timeout(Some(Duration::from_millis(50)))?;
     let remote = Arc::new(Mutex::new(Remote {
         pb: PlayoutBuffer::new(pcfg.clone(), cfg.codec.clone())?,
+        last_seq: None,
+        long_gaps: VecDeque::new(),
+        partner_shield: false,
         stream_id: None,
         generation: 0,
         addr: cfg.peer,
@@ -356,6 +378,7 @@ pub fn run_live(
         let sync = sync.clone();
         let stop = stop_rx.clone();
         let (pcfg, codec) = (pcfg.clone(), cfg.codec.clone());
+        let normal_cover = cfg.redundancy.iter().max().copied().unwrap_or(0) as u32;
         std::thread::Builder::new()
             .name("live-rx".into())
             .spawn(move || -> Result<()> {
@@ -379,6 +402,20 @@ pub fn run_live(
                                 r.stream_id = Some(m.stream_id);
                                 r.generation += 1;
                                 r.left = false;
+                                r.last_seq = None;
+                            }
+                            if let Some(l) = r.last_seq {
+                                let gap = m.seq.wrapping_sub(l).wrapping_sub(1);
+                                // Lost in a row (ignore reordering and wraparound).
+                                if gap > normal_cover && gap < 10_000 {
+                                    r.long_gaps.push_back(now);
+                                }
+                            }
+                            if r.last_seq
+                                .map(|l| m.seq.wrapping_sub(l) < 1 << 31)
+                                .unwrap_or(true)
+                            {
+                                r.last_seq = Some(m.seq);
                             }
                             r.pb.push(&m, now);
                         }
@@ -406,10 +443,12 @@ pub fn run_live(
                             epoch,
                             on_air,
                             ready,
+                            shield,
                             tiebreak,
                             name,
                         } => {
                             r.partner_ready = ready;
+                            r.partner_shield = shield;
                             r.state = Some((epoch, on_air, tiebreak, name));
                         }
                         Packet::Bye => {
@@ -515,6 +554,8 @@ pub fn run_live(
     let mut next_sync: i64 = 0;
     let mut partner_bpm: Option<f64> = None;
     let mut pgrid: Option<PartnerGrid> = None;
+    let mut want_shield = false;
+    let mut next_shield_check = start;
     let mut wave_you = PeakWave::new();
     let mut wave_partner = PeakWave::new();
     let mut next_ping = start;
@@ -607,8 +648,9 @@ pub fn run_live(
                 capture_us: t,
                 payload,
             };
-            let redundant = cfg
-                .redundancy
+            let shielded = remote.lock().unwrap().partner_shield;
+            let offsets: &[u64] = if shielded { &SHIELD } else { &cfg.redundancy };
+            let redundant = offsets
                 .iter()
                 .filter_map(|&o| history.iter().rev().find(|f| f.index + o == k).cloned())
                 .collect();
@@ -625,7 +667,7 @@ pub fn run_live(
                 bytes_sent.fetch_add(buf.len() as u64 + 28, Ordering::Relaxed);
             }
             history.push_back(primary);
-            while history.len() > max_red.max(1) {
+            while history.len() > max_red.max(SHIELD[SHIELD.len() - 1] as usize) {
                 history.pop_front();
             }
             if t >= next_ping {
@@ -692,6 +734,7 @@ pub fn run_live(
                     epoch,
                     on_air,
                     ready,
+                    shield: want_shield,
                     tiebreak,
                     name: cfg.name.clone(),
                 }
@@ -730,7 +773,7 @@ pub fn run_live(
                 info = Some(r.pb.render(t, fs, &mut remote_out)?);
                 while r.pb.stats.reanchors.len() > seen_reanchors {
                     let e = &r.pb.stats.reanchors[seen_reanchors];
-                    if e.reason != "beat-quantized monitoring" {
+                    if e.reason != "beat-quantized monitoring" && e.reason != "wifi shield" {
                         ev(
                             &mut events,
                             t,
@@ -828,6 +871,57 @@ pub fn run_live(
         }
 
         // Partner tempo (for the screen) and deck SYNC while coming in.
+        // Wi-Fi shield: dropouts longer than the normal copies cover ask the partner
+        // for wider redundancy, and the buffer waits long enough for those copies.
+        if t >= next_shield_check {
+            next_shield_check = t + 1_000_000;
+            let mut r = remote.lock().unwrap();
+            while r
+                .long_gaps
+                .front()
+                .map(|&g| t - g > SHIELD_OFF_US)
+                .unwrap_or(false)
+            {
+                r.long_gaps.pop_front();
+            }
+            let recent = r
+                .long_gaps
+                .iter()
+                .filter(|&&g| t - g <= SHIELD_WINDOW_US)
+                .count();
+            let was = want_shield;
+            if !want_shield && recent >= SHIELD_BURSTS {
+                want_shield = true;
+            } else if want_shield && r.long_gaps.is_empty() {
+                want_shield = false;
+            }
+            let base = cfg.redundancy.iter().max().copied().unwrap_or(0) as i64 * frame_us;
+            let need = if want_shield {
+                SHIELD[SHIELD.len() - 1] as i64 * frame_us
+            } else {
+                base
+            };
+            if r.pb.recovery_us() != need {
+                r.pb.set_recovery(need, t, "wifi shield");
+            }
+            drop(r);
+            if want_shield != was {
+                state_burst = 3;
+                ev(
+                    &mut events,
+                    t,
+                    if want_shield {
+                        format!(
+                            "Dropouts on the link: Wi-Fi shield on (+{} ms delay, rebuilds gaps up to 80 ms)",
+                            (SHIELD[SHIELD.len() - 1] as i64 * frame_us - base) / 1000
+                        )
+                    } else {
+                        "Link steady again: Wi-Fi shield off".into()
+                    },
+                );
+            }
+        }
+
         if t >= next_sync {
             next_sync = t + 1_000_000;
             let w = 6000usize;
@@ -897,6 +991,8 @@ pub fn run_live(
                 rtt_ms: rtt.map(|v| v as f64 / 1e3),
                 margin_ms: playing_gen.map(|_| r.pb.margin_us() / 1e3),
                 beat_align_ms: quant_total_ms,
+                shield: want_shield,
+                partner_shield: r.partner_shield,
                 recovered_10s: s.frames_from_redundancy + s.frames_fec - r0,
                 concealed_10s: s.frames_plc - c0,
                 concealed_total: s.frames_plc,
@@ -904,7 +1000,9 @@ pub fn run_live(
                 reanchors: s
                     .reanchors
                     .iter()
-                    .filter(|e| e.reason != "beat-quantized monitoring")
+                    .filter(|e| {
+                        e.reason != "beat-quantized monitoring" && e.reason != "wifi shield"
+                    })
                     .count(),
                 fader,
                 partner_volume: pvol,
