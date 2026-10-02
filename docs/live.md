@@ -39,6 +39,15 @@ What to try:
 5. A minute later (or when you press **G**) the ghost cues its next track, syncs to
    you as it hears you, fades in, and takes the air back. Fade yourself out with **↓**.
 
+### Reading the beat meter
+
+Under the deck line the screen draws one bar, beats 1 to 4, twice: the top marker is
+your partner's beat as you hear it, the bottom one is your track. When they move
+together you're beatmatched. The words next to it say how far off you are: "1 beat
+ahead · press [ to fix" means the bars are off (fix with [ or ]), "30 ms late" means the
+beats are close but not on top of each other (SYNC, or nudge with , and .). The Offset
+gauge shows the same thing as a needle: centred is on the beat.
+
 While you're on air, the ghost reaches you about two network trips late; the app adds
 just enough extra delay that it lands on your beat ("+N ms to land on your beat").
 

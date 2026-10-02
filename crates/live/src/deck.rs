@@ -119,6 +119,27 @@ pub fn bar_fold(program: &[f32], g: &BeatGrid) -> Vec<f32> {
     fold(&env, g.offset / HOP as f64, 4.0 * g.period / HOP as f64)
 }
 
+/// Which beat of a 4-beat fold (`beat` bins per beat) is beat 1, guessed from where
+/// the claps/snares are: they sit on beats 2 and 4. (0 or 1: it can't tell 1 from 3.)
+pub fn clap_downbeat(fold: &[f32], beat: f64) -> f64 {
+    let n = fold.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let e = |i: usize| -> f32 {
+        let c = i as f64 * beat;
+        let w = (beat / 8.0).max(1.0) as i64;
+        (-w..=w)
+            .map(|o| fold[((c as i64 + o).rem_euclid(n as i64)) as usize])
+            .sum()
+    };
+    if e(1) + e(3) >= e(0) + e(2) {
+        0.0
+    } else {
+        1.0
+    }
+}
+
 /// Fold `env` onto one cycle of `len` bins starting at index `start`, averaged.
 pub fn fold(env: &[f32], start: f64, len: f64) -> Vec<f32> {
     let bins = len.round().max(1.0) as usize;
@@ -311,6 +332,13 @@ impl Deck {
         let phase = ((self.pos - g.offset) / g.period).rem_euclid(1.0);
         let rem = if phase < 1e-9 { 0.0 } else { 1.0 - phase };
         Some(rem * g.period / (self.pitch * RATE))
+    }
+
+    /// Where the deck is in its bar, in beats (0.0 = beat 1 ... 3.99), counting
+    /// bars from the track's first beat.
+    pub fn beat_pos(&self) -> Option<f64> {
+        let g = self.grid?;
+        Some(((self.pos - g.offset) / g.period).rem_euclid(4.0))
     }
 
     pub fn status(&self) -> DeckStatus {

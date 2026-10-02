@@ -423,6 +423,7 @@ fn apply(ctl: &LiveControls, ghost: Option<&LiveControls>, c: &str) {
         "sync" => ctl.send(Cmd::SyncToggle),
         "cue" => ctl.send(Cmd::DeckCue),
         "jump" => ctl.send(Cmd::BeatJump(1)),
+        "back" => ctl.send(Cmd::BeatJump(-1)),
         "ready" => ctl.send(Cmd::SetReady(true)),
         "comeback" => {
             if let Some(g) = ghost {
@@ -481,6 +482,18 @@ fn headless(
                 d.and_then(|d| d.sync_err_ms).map(|e| format!("{e:+.1}ms")).unwrap_or("-".into()),
                 ghost.map(|g| g.status().ghost.unwrap_or_default()).unwrap_or_default(),
             );
+            if let Some(b) = &st.beats {
+                println!(
+                    "beats   partner={:.2} you={} ahead={} ({}) bars_known={}",
+                    b.partner,
+                    b.you.map(|v| format!("{v:.2}")).unwrap_or("-".into()),
+                    b.ahead_beats
+                        .map(|v| format!("{v:+.3}"))
+                        .unwrap_or("-".into()),
+                    fmt_ms(b.ahead_ms),
+                    b.bars_known
+                );
+            }
             if let Some(g) = ghost {
                 let gs = g.status();
                 println!(
@@ -573,7 +586,7 @@ fn screen(
                 ghost.is_some(),
                 out_stats,
             )?;
-            std::thread::sleep(Duration::from_millis(80));
+            std::thread::sleep(Duration::from_millis(30));
         }
     })();
     execute!(out, cursor::Show, terminal::LeaveAlternateScreen)?;
@@ -673,6 +686,10 @@ fn draw(
             .map(|b| format!("{partner} at {b:.1} BPM"))
             .unwrap_or("-".into())
     ));
+    if let Some(b) = &st.beats {
+        let playing = st.deck.as_ref().map(|d| d.playing).unwrap_or(false);
+        lines.extend(phase_meter(b, &partner, playing));
+    }
     if solo {
         lines.push(format!(
             " Ghost     {}",
@@ -712,6 +729,85 @@ fn draw(
     queue!(out, terminal::Clear(terminal::ClearType::FromCursorDown))?;
     out.flush()?;
     Ok(())
+}
+
+/// Both beats as moving markers on a one-bar ruler, plus an offset gauge.
+fn phase_meter(b: &obsidian_live::BeatView, partner: &str, playing: bool) -> Vec<String> {
+    const PER_BEAT: usize = 8;
+    let ruler = |pos: f64| -> String {
+        let at = (pos * PER_BEAT as f64).round() as usize % (4 * PER_BEAT);
+        (0..4 * PER_BEAT)
+            .map(|i| {
+                if i == at {
+                    '█'
+                } else if i % PER_BEAT == 0 {
+                    '┃'
+                } else {
+                    '─'
+                }
+            })
+            .collect()
+    };
+    let mut head = String::new();
+    for n in 1..=4 {
+        head += &format!("{n:<w$}", w = PER_BEAT);
+    }
+    let mut out = vec![
+        String::new(),
+        format!(" {:<9} {head}", "Bar"),
+        format!(" {:<9} {}", trunc(partner, 9), ruler(b.partner)),
+    ];
+    if let (Some(y), false) = (b.you, playing) {
+        out.push(format!(" {:<9} {}   paused (P to play)", "You", ruler(y)));
+    } else if let (Some(y), Some(a)) = (b.you, b.ahead_beats) {
+        let whole = a.round();
+        let what = if b.bars_known && whole.abs() >= 1.0 {
+            let n = whole.abs() as i32;
+            format!(
+                "{n} beat{} {} · press {} to fix",
+                if n == 1 { "" } else { "s" },
+                if whole > 0.0 { "ahead" } else { "behind" },
+                if whole > 0.0 { "[" } else { "]" }
+            )
+        } else {
+            let ms = (a - whole) * b.beat_ms;
+            if ms.abs() < 5.0 {
+                "ON THE BEAT".to_string()
+            } else {
+                format!(
+                    "{:.0} ms {}",
+                    ms.abs(),
+                    if ms > 0.0 { "early" } else { "late" }
+                )
+            }
+        };
+        out.push(format!(" {:<9} {}   {what}", "You", ruler(y)));
+        // Offset gauge: ±60 ms around the partner's beat (whole beats left out).
+        let ms = (a - a.round()) * b.beat_ms;
+        let half = 15usize;
+        let at = (half as f64 + (ms / 60.0).clamp(-1.0, 1.0) * half as f64).round() as usize;
+        let gauge: String = (0..=2 * half)
+            .map(|i| {
+                if i == at {
+                    '█'
+                } else if i == half {
+                    '┃'
+                } else {
+                    '─'
+                }
+            })
+            .collect();
+        out.push(format!(
+            " {:<9} late {gauge} early{}",
+            "Offset",
+            if b.bars_known {
+                ""
+            } else {
+                "   (bar not sure yet)"
+            }
+        ));
+    }
+    out
 }
 
 fn trunc(s: &str, n: usize) -> String {
