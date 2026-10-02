@@ -1,0 +1,29 @@
+/* Obsidian B2B design tokens. Shared with the clickable mockup's palette. */
+:root {
+  --bg: #0a0a0d;
+  --surface: #0e0e12;
+  --surface-raised: #131318;
+  --line: #1a1a21;
+  --line-2: #24242d;
+  --line-3: #34343f;
+
+  --text: #ececf1;
+  --text-2: #9a9aa8;
+  --text-3: #7a7a88; /* smallest labels; 4.6:1 on --bg */
+
+  /* Semantic colours follow the ROLE, never the person. */
+  --on-air: #ff6a3d; /* owns the mix */
+  --on-air-ink: #160904;
+  --cue: #6cc4ff; /* listening, cueing, ready */
+  --ok: #7fe0a8;
+  --attention: #ffc24d;
+  --rec: #f0605a;
+
+  --font-ui: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --ease-booth: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  color-scheme: dark;
+}

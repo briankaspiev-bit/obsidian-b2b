@@ -1,0 +1,1694 @@
+/* Live Session screen. Near-black hardware; orange and blue behave like LEDs. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+}
+
+/* The screen is desktop-only; narrow windows scroll inside #root, never the page. */
+#root {
+  overflow-x: auto;
+}
+
+body {
+  color: var(--text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+}
+
+:root {
+  --handoff-ms: 1600ms;
+  --gutter: clamp(24px, 3vw, 56px);
+}
+
+.fade-in {
+  animation: fade-in 260ms var(--ease-out) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--cue);
+  outline-offset: 3px;
+}
+
+/* ---------- Layout ---------------------------------------------------- */
+
+.ls {
+  position: relative;
+  min-height: 100vh;
+  min-width: 1024px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.ls-stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(14px, 3vh, 44px);
+  padding: clamp(14px, 3vh, 40px) var(--gutter) clamp(14px, 2.4vh, 32px);
+}
+
+.ls-booth {
+  --col-l: minmax(0, 1fr);
+  --col-r: minmax(0, 1fr);
+  display: grid;
+  grid-template-columns: var(--col-l) minmax(240px, 0.95fr) var(--col-r);
+  grid-template-rows: auto auto;
+  row-gap: clamp(14px, 2.4vh, 32px);
+  transition: grid-template-columns 700ms var(--ease-booth);
+}
+
+/* The side that owns the mix gets more of the booth. */
+.ls[data-emphasis='left'] .ls-booth {
+  --col-l: minmax(0, 1.16fr);
+  --col-r: minmax(0, 0.9fr);
+}
+.ls[data-emphasis='right'] .ls-booth {
+  --col-l: minmax(0, 0.9fr);
+  --col-r: minmax(0, 1.16fr);
+}
+
+.ls-booth__under-center {
+  display: flex;
+  justify-content: center;
+}
+.ls-booth__under-left,
+.ls-booth__under-right {
+  align-self: start;
+}
+/* Sized like the remote meter, so the two read as a matched pair. */
+.ls-booth__under-left .meter {
+  max-width: 100%;
+}
+
+/* ---------- Header ---------------------------------------------------- */
+
+.ls-header {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--gutter);
+  border-bottom: 1px solid var(--line);
+}
+.ls-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ls-header__mark {
+  color: var(--text-2);
+}
+.ls-header__name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+.ls-header__divider {
+  width: 1px;
+  height: 16px;
+  background: var(--line-3);
+  margin: 0 4px;
+}
+.ls-header__context {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.ls-header__room {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* ---------- Timer ----------------------------------------------------- */
+
+.ls-timer {
+  text-align: center;
+}
+.ls-timer__phrase {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.34em;
+  color: var(--text-3);
+  margin-bottom: clamp(8px, 1.4vh, 14px);
+}
+.ls-timer__value {
+  font-family: var(--font-mono);
+  font-size: clamp(52px, min(6.6vw, 11vh), 112px);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- DJ panels ------------------------------------------------- */
+
+.dj-panel {
+  --accent: var(--line-3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.dj-panel[data-role='onAir'] {
+  --accent: var(--on-air);
+}
+.dj-panel[data-role='cueing'],
+.dj-panel[data-role='ready'] {
+  --accent: var(--cue);
+}
+.dj-panel[data-handoff='incoming'] {
+  --accent: var(--on-air);
+}
+.dj-panel[data-handoff='outgoing'] {
+  --accent: var(--cue);
+}
+
+.dj-panel__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--text-3);
+  padding-left: 2px;
+}
+.dj-panel[data-side='right'] .dj-panel__eyebrow {
+  text-align: right;
+  padding: 0 2px 0 0;
+}
+
+.dj-panel__plate {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2.2vh, 24px);
+  padding: clamp(18px, min(2.2vw, 3.4vh), 32px);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line-2));
+  border-radius: 14px;
+  transition:
+    border-color 700ms var(--ease-booth),
+    box-shadow 700ms var(--ease-booth);
+}
+.dj-panel[data-role='onAir'] .dj-panel__plate {
+  border-color: color-mix(in srgb, var(--on-air) 62%, var(--line-2));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--on-air) 14%, transparent),
+    0 24px 60px -36px color-mix(in srgb, var(--on-air) 55%, transparent);
+  animation: on-air-intensify 1400ms var(--ease-out) both;
+}
+.dj-panel[data-role='ready'] .dj-panel__plate {
+  border-color: var(--cue);
+  background: color-mix(in srgb, var(--cue) 5%, var(--surface));
+  animation: ready-pulse 1200ms ease-in-out infinite;
+}
+.dj-panel[data-handoff='incoming'] .dj-panel__plate {
+  border-color: color-mix(in srgb, var(--on-air) 45%, var(--line-2));
+}
+
+@keyframes on-air-intensify {
+  0% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--on-air) 0%, transparent),
+      0 24px 60px -36px transparent;
+  }
+  45% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--on-air) 32%, transparent),
+      0 24px 64px -30px color-mix(in srgb, var(--on-air) 70%, transparent);
+  }
+}
+
+@keyframes ready-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--cue) 25%, transparent),
+      0 0 28px -10px color-mix(in srgb, var(--cue) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--cue) 65%, transparent),
+      0 0 80px -4px color-mix(in srgb, var(--cue) 70%, transparent);
+  }
+}
+
+/* A thin light bar along the top edge, like a channel strip LED. */
+.dj-panel__lightbar {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 28px;
+  right: 28px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.35;
+  transition:
+    opacity 700ms var(--ease-booth),
+    background-color 700ms var(--ease-booth);
+}
+.dj-panel[data-role='onAir'] .dj-panel__lightbar {
+  opacity: 1;
+}
+.dj-panel[data-role='ready'] .dj-panel__lightbar {
+  opacity: 0.8;
+}
+
+.dj-panel__name {
+  margin: 0;
+  font-size: clamp(28px, 2.5vw, 42px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+.dj-panel__city {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--text-2);
+}
+
+.dj-panel__state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  min-height: 38px;
+}
+.dj-panel__notice {
+  font-size: 14px;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dj-panel__notice::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--attention);
+  animation: breathe 2400ms ease-in-out infinite;
+}
+
+.dj-panel__track {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding-top: clamp(14px, 2vh, 20px);
+  transition: opacity 600ms var(--ease-booth);
+}
+.dj-panel:not([data-role='onAir']) .dj-panel__track {
+  opacity: 0.72;
+}
+.dj-panel__track-text {
+  min-width: 0;
+}
+.dj-panel__track-title {
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dj-panel__track-artist {
+  margin-top: 3px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.dj-panel__track-time {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Remote dropped: the remote side dims gently; nothing turns red. */
+.dj-panel[data-reconnecting] .dj-panel__who,
+.dj-panel[data-reconnecting] .dj-panel__track,
+.dj-panel[data-reconnecting] .state-pill,
+.dj-panel[data-reconnecting] .dj-panel__lightbar {
+  opacity: 0.4;
+  transition: opacity 600ms var(--ease-booth);
+}
+.dj-panel[data-reconnecting] .dj-panel__plate {
+  border-color: var(--line-2);
+  box-shadow: none;
+  animation: none;
+}
+
+/* ---------- State pill ------------------------------------------------ */
+
+.state-pill {
+  --accent: var(--line-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  transition:
+    color 600ms var(--ease-booth),
+    border-color 600ms var(--ease-booth),
+    background-color 600ms var(--ease-booth);
+}
+.state-pill[data-role='onAir'] {
+  --accent: var(--on-air);
+}
+.state-pill[data-role='cueing'],
+.state-pill[data-role='ready'] {
+  --accent: var(--cue);
+}
+.state-pill[data-role='handoff'] {
+  --accent: var(--text-2);
+  color: var(--text);
+}
+.state-pill__led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.state-pill[data-role='ready'] {
+  animation: pill-glow 2400ms ease-in-out infinite;
+}
+.state-pill[data-role='ready'] .state-pill__led {
+  animation: breathe 2400ms ease-in-out infinite;
+}
+@keyframes pill-glow {
+  50% {
+    background: color-mix(in srgb, var(--cue) 18%, transparent);
+    box-shadow: 0 0 20px -4px color-mix(in srgb, var(--cue) 55%, transparent);
+  }
+}
+.state-pill[data-handoff='incoming'] .state-pill__led {
+  animation: led-to-on-air var(--handoff-ms) var(--ease-booth) both;
+}
+.state-pill[data-handoff='outgoing'] .state-pill__led {
+  animation: led-to-cue var(--handoff-ms) var(--ease-booth) both;
+}
+
+@keyframes led-to-on-air {
+  from {
+    background: var(--cue);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--cue) 70%, transparent);
+  }
+  to {
+    background: var(--on-air);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--on-air) 80%, transparent);
+  }
+}
+@keyframes led-to-cue {
+  from {
+    background: var(--on-air);
+  }
+  to {
+    background: var(--cue);
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------- Center: status + rail ------------------------------------ */
+
+.ls-center {
+  position: relative;
+  align-self: stretch;
+  /* Panels have an eyebrow above the plate; keep the rail on the plate's middle. */
+  margin-top: 21px;
+}
+.ls-center__status {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(50% + 22px);
+  text-align: center;
+}
+.ls-center__main {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  transition: color 600ms var(--ease-booth);
+}
+.ls-center__status[data-tone='onAir'] .ls-center__main {
+  color: var(--on-air);
+}
+.ls-center__status[data-tone='ready'] .ls-center__main {
+  color: var(--cue);
+}
+.ls-center__status[data-tone='handoff'] .ls-center__main {
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+.ready-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--cue) 70%, transparent);
+  background: color-mix(in srgb, var(--cue) 12%, var(--bg));
+  color: var(--cue);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  animation: pill-glow 2400ms ease-in-out infinite;
+}
+.ready-badge__led {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cue);
+  box-shadow: 0 0 10px var(--cue);
+}
+.ready-badge__led::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid var(--cue);
+  animation: led-ring 2400ms ease-out infinite;
+}
+@keyframes led-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  70%,
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+.ls-center__sub {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 0;
+}
+.rail__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -0.5px;
+  height: 1px;
+  background: var(--line-3);
+}
+.rail__energy,
+.rail__cue {
+  position: absolute;
+  width: 50%;
+  border-radius: 2px;
+  opacity: 0;
+  transform: scaleX(0);
+}
+.rail__energy {
+  top: -1.5px;
+  height: 3px;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--on-air) 55%, transparent));
+  transition:
+    transform 700ms var(--ease-booth),
+    opacity 500ms var(--ease-booth);
+}
+.rail__energy--left {
+  left: 0;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--on-air), color-mix(in srgb, var(--on-air) 45%, transparent) 75%, transparent);
+}
+.rail__energy--right {
+  right: 0;
+  transform-origin: right center;
+  background: linear-gradient(270deg, var(--on-air), color-mix(in srgb, var(--on-air) 45%, transparent) 75%, transparent);
+}
+.rail__energy[data-state='on'],
+.rail__energy[data-state='in'] {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.rail__energy[data-state='out'] {
+  transition-duration: calc(var(--handoff-ms) * 0.45);
+}
+.rail__energy[data-state='in'] {
+  transition-duration: calc(var(--handoff-ms) * 0.5);
+  transition-delay: calc(var(--handoff-ms) * 0.45);
+}
+
+.rail__cue {
+  top: -1px;
+  height: 2px;
+  transition:
+    opacity 600ms var(--ease-booth),
+    transform 600ms var(--ease-booth);
+}
+.rail__cue--left {
+  left: 0;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--cue), transparent);
+}
+.rail__cue--right {
+  right: 0;
+  transform-origin: right center;
+  background: linear-gradient(270deg, var(--cue), transparent);
+}
+.rail__cue[data-on] {
+  top: -1.5px;
+  height: 3px;
+  opacity: 0.9;
+  transform: scaleX(1);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--cue) 70%, transparent));
+  animation: breathe 2400ms ease-in-out infinite;
+}
+
+/* READY: three chevrons on the ready DJ's half, lighting in turn toward the
+   middle, like a "coming in" indicator on a mixer. */
+.rail__chevrons {
+  position: absolute;
+  top: -7px;
+  display: flex;
+  gap: 6px;
+}
+.rail__chevrons[data-side='right'] {
+  left: calc(50% + 22px);
+}
+.rail__chevrons[data-side='left'] {
+  right: calc(50% + 22px);
+  flex-direction: row-reverse;
+}
+.rail__chevrons span {
+  width: 10px;
+  height: 10px;
+  border-left: 2px solid var(--cue);
+  border-bottom: 2px solid var(--cue);
+  transform: rotate(45deg);
+  opacity: 0.15;
+  animation: chevron-run 1800ms ease-in-out infinite;
+}
+.rail__chevrons[data-side='left'] span {
+  transform: rotate(-135deg);
+}
+.rail__chevrons span:nth-child(1) {
+  animation-delay: 0ms;
+}
+.rail__chevrons span:nth-child(2) {
+  animation-delay: 220ms;
+}
+.rail__chevrons span:nth-child(3) {
+  animation-delay: 440ms;
+}
+.rail__chevrons[data-side='right'] span:nth-child(1) {
+  animation-delay: 440ms;
+}
+.rail__chevrons[data-side='right'] span:nth-child(3) {
+  animation-delay: 0ms;
+}
+@keyframes chevron-run {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  30% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px var(--cue));
+  }
+}
+
+.rail__packet {
+  position: absolute;
+  top: -3px;
+  width: 84px;
+  height: 6px;
+  margin-left: -42px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--on-air), transparent);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--on-air) 70%, transparent));
+  opacity: 0;
+}
+.rail__packet[data-dir='ltr'] {
+  animation: packet-ltr calc(var(--handoff-ms) * 0.85) var(--ease-booth) both;
+}
+.rail__packet[data-dir='rtl'] {
+  animation: packet-rtl calc(var(--handoff-ms) * 0.85) var(--ease-booth) both;
+}
+@keyframes packet-ltr {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+@keyframes packet-rtl {
+  0% {
+    left: 100%;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 0%;
+    opacity: 0;
+  }
+}
+
+.rail__node {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg);
+  border: 1px solid var(--line-3);
+  transition: border-color 500ms var(--ease-booth);
+}
+.rail__node[data-ready] {
+  border-color: var(--cue);
+  background: color-mix(in srgb, var(--cue) 35%, var(--bg));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--cue) 60%, transparent);
+}
+.rail__node[data-handoff] {
+  animation: node-cross var(--handoff-ms) var(--ease-booth) both;
+}
+@keyframes node-cross {
+  40%,
+  60% {
+    border-color: var(--on-air);
+    background: color-mix(in srgb, var(--on-air) 60%, var(--bg));
+  }
+}
+
+/* ---------- TAKE OVER ------------------------------------------------- */
+
+.takeover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.takeover__button {
+  --hold: 0;
+  position: relative;
+  width: clamp(124px, min(11.5vw, 17vh), 184px);
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.takeover__button:disabled {
+  cursor: default;
+}
+.takeover__ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.takeover__ring-track {
+  fill: none;
+  stroke: var(--line-3);
+  stroke-width: 1.5;
+  transition: stroke 600ms var(--ease-booth);
+}
+.takeover__ring-fill {
+  fill: none;
+  stroke: var(--on-air);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.takeover__face {
+  position: absolute;
+  inset: 11px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 32%, #1a1a21, #0f0f13 72%);
+  border: 1px solid var(--line-2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px -14px rgba(0, 0, 0, 0.9),
+    0 0 calc(var(--hold) * 36px) calc(var(--hold) * -4px) color-mix(in srgb, var(--on-air) 55%, transparent);
+  transition:
+    transform 140ms var(--ease-out),
+    border-color 500ms var(--ease-booth);
+}
+.takeover__label {
+  font-family: var(--font-mono);
+  font-size: clamp(13px, 1vw, 15px);
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  padding-left: 0.26em;
+}
+
+.takeover[data-mode='take'] .takeover__face {
+  border-color: color-mix(in srgb, var(--on-air) 42%, var(--line-2));
+}
+.takeover[data-mode='take'] .takeover__button:not(:disabled):hover .takeover__face {
+  border-color: color-mix(in srgb, var(--on-air) 72%, var(--line-2));
+}
+.takeover[data-mode='take'] .takeover__button[data-holding] .takeover__face {
+  transform: scale(0.975);
+}
+.takeover[data-mode='take'] .takeover__button:disabled {
+  opacity: 0.4;
+}
+.takeover[data-mode='onAir'] .takeover__ring-track {
+  stroke: color-mix(in srgb, var(--on-air) 45%, transparent);
+}
+.takeover[data-mode='onAir'] .takeover__label {
+  color: var(--on-air);
+}
+.takeover[data-mode='onAir'] .takeover__face {
+  background: radial-gradient(circle at 50% 32%, #15151b, #0d0d11 72%);
+}
+.takeover[data-remote-ready] .takeover__ring-track {
+  stroke: var(--cue);
+  stroke-width: 2;
+  animation: breathe 2400ms ease-in-out infinite;
+}
+.takeover[data-remote-ready] .takeover__caption {
+  color: var(--cue);
+}
+.takeover[data-mode='handoff'] .takeover__ring-track {
+  stroke: var(--on-air);
+  animation: breathe 800ms ease-in-out infinite;
+}
+.takeover__button:focus-visible {
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+.takeover__caption {
+  margin: 0;
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.ready-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--cue) 32%, var(--line-2));
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition:
+    color 300ms,
+    background-color 300ms,
+    border-color 300ms;
+}
+.ready-toggle:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--cue) 55%, var(--line-2));
+}
+.ready-toggle__led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--cue);
+}
+.ready-toggle[aria-pressed='true'] {
+  color: var(--text-2);
+  border-color: var(--line-3);
+}
+.ready-toggle[aria-pressed='true'] .ready-toggle__led {
+  display: none;
+}
+
+/* ---------- Remote level meter --------------------------------------- */
+
+.meter {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.meter__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.meter__title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.26em;
+  color: var(--text-3);
+}
+.meter__readout {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.meter__row {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.meter__ch {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.meter__bar {
+  display: grid;
+  grid-template-columns: repeat(28, 1fr);
+  gap: 2px;
+  height: 10px;
+  transition: opacity 600ms var(--ease-booth);
+}
+.meter__seg {
+  border-radius: 1px;
+  background: #18181f;
+}
+.meter__seg[data-on] {
+  background: color-mix(in srgb, var(--cue) 85%, transparent);
+}
+.meter__seg[data-on][data-hot] {
+  background: var(--attention);
+}
+.meter__seg[data-peak] {
+  background: var(--text);
+}
+.meter__scale {
+  position: relative;
+  height: 12px;
+  margin-left: 24px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-3);
+}
+.meter__scale span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.meter__scale span:nth-child(1) {
+  left: 0;
+  transform: none;
+}
+.meter__scale span:nth-child(2) {
+  left: 50%;
+}
+.meter__scale span:nth-child(3) {
+  left: 75%;
+}
+.meter__scale span:nth-child(4) {
+  left: 87.5%;
+}
+.meter__scale span:nth-child(5) {
+  right: 0;
+  transform: none;
+}
+.meter[data-readout='noSignal'] .meter__readout {
+  color: var(--attention);
+}
+.meter[data-reconnecting] .meter__bar {
+  opacity: 0.35;
+}
+
+/* ---------- Footer: health, end, diagnostics ------------------------- */
+
+.ls-footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px var(--gutter) 36px;
+  border-top: 1px solid var(--line);
+}
+
+.health {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.health__item {
+  --tone: var(--ok);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px clamp(16px, 2vw, 32px);
+  border-left: 1px solid var(--line);
+}
+.health__item:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.health__icon {
+  display: flex;
+  color: var(--text-3);
+  transition: color 500ms;
+}
+.health__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.health__label {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.health__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-2);
+  transition: color 500ms;
+}
+.health__led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tone);
+}
+.health__item[data-tone='ok'] .health__led {
+  opacity: 0.75;
+  animation: breathe 5200ms ease-in-out infinite;
+}
+.health__item[data-tone='attention'] {
+  --tone: var(--attention);
+}
+.health__item[data-tone='attention'] .health__value {
+  color: var(--text);
+}
+.health__item[data-tone='attention'] .health__icon {
+  color: var(--attention);
+}
+.health__item[data-tone='rec'] {
+  --tone: var(--rec);
+}
+.health__item[data-tone='muted'] {
+  --tone: var(--line-3);
+}
+.health__rec-dot {
+  fill: var(--rec);
+}
+.health__item[data-tone='muted'] .health__rec-dot {
+  fill: var(--text-3);
+}
+.health__reassure {
+  padding-left: clamp(16px, 2vw, 32px);
+  font-size: 13px;
+  color: var(--text-2);
+  max-width: 280px;
+}
+
+.end {
+  position: relative;
+  flex-shrink: 0;
+}
+.end__button {
+  height: 44px;
+  padding: 0 22px;
+  border-radius: 10px;
+  border: 1px solid var(--line-3);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color 200ms,
+    border-color 200ms;
+}
+.end__button:hover,
+.end__button[aria-expanded='true'] {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--rec) 45%, var(--line-3));
+}
+.end__confirm {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: 300px;
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid var(--line-3);
+  background: var(--surface-raised);
+  box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.9);
+  z-index: 10;
+}
+.end__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.end__body {
+  margin: 6px 0 16px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.end__actions {
+  display: flex;
+  gap: 10px;
+}
+.end__actions button {
+  flex: 1;
+  height: 40px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.end__keep {
+  border: 0;
+  background: var(--text);
+  color: var(--bg);
+}
+.end__confirm-btn {
+  border: 1px solid color-mix(in srgb, var(--rec) 60%, transparent);
+  background: transparent;
+  color: #ff9a94;
+}
+
+.diag {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 5;
+}
+.diag__tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 18px;
+  border: 1px solid var(--line-2);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--bg);
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+.diag__tab:hover {
+  color: var(--text-2);
+}
+.diag__chev {
+  transition: transform 300ms var(--ease-booth);
+}
+.diag[data-open] .diag__chev {
+  transform: rotate(180deg);
+}
+.diag__panel {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: min(760px, 86vw);
+  padding: 18px 22px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.9);
+  animation: fade-in 240ms var(--ease-out) both;
+}
+.diag__panel[hidden] {
+  display: none;
+}
+.diag__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 24px;
+  margin: 0;
+}
+.diag__cell dt {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.diag__cell dd {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Session ended -------------------------------------------- */
+
+.ls-ended {
+  position: absolute;
+  inset: 52px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  z-index: 20;
+}
+.ls-ended__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  color: var(--text-2);
+}
+.ls-ended__time {
+  font-family: var(--font-mono);
+  font-size: 72px;
+  font-weight: 500;
+}
+.ls-ended__meta {
+  font-size: 15px;
+  color: var(--text-2);
+}
+
+/* ---------- Mock controls (not part of the product) ------------------- */
+
+.mock {
+  position: fixed;
+  top: 64px;
+  left: var(--gutter, 40px);
+  z-index: 60;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+/* A small tab tucked under the logo, outside the booth. */
+.mock__toggle {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px dashed var(--line-3);
+  background: #111116;
+  color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mock__toggle[aria-expanded='true'] {
+  color: var(--text);
+}
+.mock__body {
+  width: 380px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed var(--line-3);
+  border-radius: 10px;
+  background: #111116;
+  box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.8);
+}
+.mock__note {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+  color: var(--text-3);
+}
+.mock__body button {
+  height: 28px;
+  white-space: nowrap;
+  border-radius: 6px;
+  border: 1px solid var(--line-3);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.mock__body button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ---------- Reduced motion ------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 160ms !important;
+    transition-delay: 0ms !important;
+  }
+  .rail__packet {
+    display: none;
+  }
+}
+
+/* ---------- Smaller desktop windows ---------------------------------- */
+
+@media (max-height: 780px) {
+  .dj-panel__track {
+    padding-top: 12px;
+  }
+  .ls-footer {
+    padding-bottom: 32px;
+  }
+}
+
+/* ---------- You're live ---------------------------------------------- */
+/* Live is steady on purpose: nothing here pulses. Breathing means someone is
+   waiting (READY); a solid light means it's happening. */
+
+.ls-live-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--on-air) 72%, transparent),
+    inset 0 0 70px -24px color-mix(in srgb, var(--on-air) 45%, transparent);
+  transition: opacity var(--handoff-ms, 1600ms) var(--ease-booth);
+}
+.ls[data-local-live] .ls-live-frame {
+  opacity: 1;
+}
+/* The other DJ is ready: your frame flashes in time with their panel, so the
+   cue reaches you even while you're looking at your decks. Smooth, about once
+   a second, well under photosensitivity limits; steady under reduced motion. */
+.ls[data-local-live][data-remote-ready] .ls-live-frame {
+  animation: frame-flash 1200ms ease-in-out infinite;
+}
+@keyframes frame-flash {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 2px color-mix(in srgb, var(--on-air) 45%, transparent),
+      inset 0 0 40px -24px color-mix(in srgb, var(--on-air) 25%, transparent);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 4px var(--on-air),
+      inset 0 0 110px -20px color-mix(in srgb, var(--on-air) 75%, transparent);
+  }
+}
+
+.live-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--font-ui);
+  font-size: clamp(24px, 3.4vh, 32px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--on-air);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--on-air) 45%, transparent);
+}
+.live-mark__led {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--on-air);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--on-air) 22%, transparent),
+    0 0 14px var(--on-air);
+}
+.ls-center__status[data-tone='live'] .ls-center__sub {
+  color: var(--text);
+}
+
+.ls-center__below {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(50% + 22px);
+  text-align: center;
+}
+
+.meter[data-live] {
+  border-color: color-mix(in srgb, var(--on-air) 55%, var(--line-2));
+  box-shadow: 0 18px 44px -32px color-mix(in srgb, var(--on-air) 70%, transparent);
+  transition: border-color 600ms var(--ease-booth);
+}
+.meter[data-live] .meter__title {
+  color: var(--text-2);
+}
+.meter[data-live] .meter__seg[data-on]:not([data-hot]) {
+  background: var(--on-air);
+}
+.meter__readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.meter__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--on-air);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+}
+.meter__live-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--on-air);
+  box-shadow: 0 0 8px var(--on-air);
+}
+
+/* ---------- On-air glass --------------------------------------------- */
+/* Whoever owns the mix gets a warm orange glass card: a tint, a soft sheen
+   across the top, and a lit inner edge. It fades across with the handoff. */
+
+.dj-panel__plate::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0) 38%),
+    radial-gradient(120% 90% at 18% 0%, color-mix(in srgb, var(--on-air) 34%, transparent), transparent 70%),
+    linear-gradient(160deg, color-mix(in srgb, var(--on-air) 24%, transparent), color-mix(in srgb, var(--on-air) 9%, transparent));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px color-mix(in srgb, var(--on-air) 30%, transparent),
+    inset 0 -30px 60px -40px color-mix(in srgb, var(--on-air) 40%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  transition: opacity var(--handoff-ms, 1600ms) var(--ease-booth);
+}
+.dj-panel[data-role='onAir'] .dj-panel__plate::before,
+.dj-panel[data-handoff='incoming'] .dj-panel__plate::before {
+  opacity: 1;
+}
+
+/* ---------- On-air photo --------------------------------------------- */
+/* Only the DJ who owns the mix shows their photo. It fills the right half of
+   the card and fades into it at the edges; it crosses over with the handoff. */
+
+.dj-panel__plate {
+  overflow: hidden;
+}
+.dj-panel__who,
+.dj-panel__state,
+.dj-panel__track {
+  position: relative;
+  z-index: 1;
+}
+.dj-panel__photo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  /* Starts just past the ON AIR pill so the fade reaches toward the name. */
+  width: 74%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--handoff-ms, 1600ms) var(--ease-booth);
+  mask-image:
+    linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.35) 18%, #000 52%),
+    linear-gradient(to top, transparent 0%, #000 42%);
+  mask-composite: intersect;
+  -webkit-mask-composite: source-in;
+}
+.dj-panel__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 60% 22%;
+  filter: brightness(0.82) saturate(1.05);
+  transform: scale(1.04);
+  transition: transform var(--handoff-ms, 1600ms) var(--ease-booth);
+  user-select: none;
+}
+/* Darkened edges so the photo sits inside the card instead of on top of it. */
+.dj-panel__photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 95% at 70% 35%, transparent 45%, rgba(10, 10, 13, 0.75) 100%),
+    linear-gradient(to bottom, rgba(10, 10, 13, 0.35), transparent 22%);
+}
+.dj-panel[data-role='onAir'] .dj-panel__photo,
+.dj-panel[data-handoff='incoming'] .dj-panel__photo {
+  opacity: 1;
+}
+.dj-panel[data-role='onAir'] .dj-panel__photo img,
+.dj-panel[data-handoff='incoming'] .dj-panel__photo img {
+  transform: scale(1);
+}
+/* Keep the track time readable where it sits over the photo's faded corner. */
+.dj-panel[data-role='onAir'] .dj-panel__track {
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- Emergency: the live DJ dropped ---------------------------- */
+/* The one state that is meant to be loud. Red, not orange, so it can't be
+   mistaken for "you're live". Flashes under 2 per second; steady under
+   reduced motion. */
+
+.ls[data-emergency] .ls-live-frame {
+  opacity: 1;
+  transition-duration: 120ms;
+  animation: emergency-flash 700ms ease-in-out infinite;
+}
+@keyframes emergency-flash {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 3px color-mix(in srgb, var(--rec) 55%, transparent),
+      inset 0 0 50px -20px color-mix(in srgb, var(--rec) 35%, transparent);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 6px var(--rec),
+      inset 0 0 140px -10px color-mix(in srgb, var(--rec) 70%, transparent);
+  }
+}
+
+.emergency-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-ui);
+  font-size: clamp(24px, 3.4vh, 32px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--rec);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--rec) 55%, transparent);
+}
+.ls-center__status[data-tone='emergency'] .ls-center__sub {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.takeover[data-mode='emergency'] .takeover__button {
+  border-color: var(--rec);
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--rec) 30%, var(--surface-raised)), var(--surface));
+  cursor: pointer;
+  animation: emergency-button 700ms ease-in-out infinite;
+}
+.takeover[data-mode='emergency'] .takeover__ring-track,
+.takeover[data-mode='emergency'] .takeover__ring-fill {
+  stroke: var(--rec);
+}
+.takeover[data-mode='emergency'] .takeover__label {
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.5;
+}
+.takeover[data-mode='emergency'] .takeover__caption {
+  color: var(--rec);
+  font-weight: 600;
+}
+@keyframes emergency-button {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 50%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 10px color-mix(in srgb, var(--rec) 22%, transparent),
+      0 0 60px 6px color-mix(in srgb, var(--rec) 55%, transparent);
+  }
+}
+
+/* The DJ who dropped: their photo and glass go grey so nobody thinks they're
+   still playing. */
+.ls[data-emergency] .dj-panel[data-side='right'] .dj-panel__photo {
+  opacity: 0.5;
+  transition-duration: 300ms;
+}
+.ls[data-emergency] .dj-panel[data-side='right'] .dj-panel__photo img {
+  filter: grayscale(1) brightness(0.6);
+}
+
+/* READY: the waiting DJ's photo flashes in and out of their card, in time
+   with the panel's blue pulse. */
+.dj-panel[data-role='ready'] .dj-panel__photo {
+  animation: photo-flash 1200ms ease-in-out infinite;
+}
+@keyframes photo-flash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dj-panel[data-role='ready'] .dj-panel__photo {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ---------- TAKE OVER / ON AIR button, louder ------------------------- */
+
+.takeover__face {
+  align-content: center;
+  gap: 6px;
+}
+.takeover__clock {
+  font-family: var(--font-mono);
+  font-size: clamp(12px, 0.95vw, 14px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+/* You're live: a solid, lit orange disc. Steady, never pulses. */
+.takeover[data-mode='onAir'] .takeover__face {
+  background: radial-gradient(circle at 50% 30%, #ff8a63, var(--on-air) 55%, #d9471d 100%);
+  border-color: color-mix(in srgb, #fff 30%, var(--on-air));
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -10px 24px -8px rgba(120, 30, 0, 0.45),
+    0 0 0 6px color-mix(in srgb, var(--on-air) 16%, transparent),
+    0 0 60px -6px color-mix(in srgb, var(--on-air) 75%, transparent);
+}
+.takeover[data-mode='onAir'] .takeover__label {
+  color: #1c0a03;
+  font-weight: 700;
+}
+.takeover[data-mode='onAir'] .takeover__clock {
+  color: rgba(28, 10, 3, 0.78);
+  font-weight: 600;
+}
+.takeover[data-mode='onAir'] .takeover__ring-track {
+  stroke: color-mix(in srgb, var(--on-air) 60%, transparent);
+  stroke-width: 2;
+}
+/* The other DJ is ready: keep the blue ring around the lit disc. */
+.takeover[data-mode='onAir'][data-remote-ready] .takeover__ring-track {
+  stroke: var(--cue);
+  stroke-width: 3;
+}
+
+/* You can take over: a bright white ring and label that read as a button.
+   Holding fills the ring orange. */
+.takeover[data-mode='take'] .takeover__ring-track {
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 2;
+}
+.takeover[data-mode='take'] .takeover__face {
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 40px -14px rgba(255, 255, 255, 0.35),
+    0 0 calc(var(--hold) * 40px) calc(var(--hold) * -2px) color-mix(in srgb, var(--on-air) 65%, transparent);
+}
+.takeover[data-mode='take'] .takeover__button:not(:disabled):hover .takeover__face {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+.takeover[data-mode='take'] .takeover__label {
+  color: #fff;
+  font-weight: 600;
+}
+.takeover[data-mode='take'] .takeover__ring-fill {
+  stroke-width: 4;
+}
