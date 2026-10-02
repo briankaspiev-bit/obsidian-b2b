@@ -95,7 +95,7 @@ pub struct DeckStatus {
 #[derive(Clone)]
 pub struct Deck {
     pub title: String,
-    program: Arc<Vec<f32>>,
+    pub(crate) program: Arc<Vec<f32>>,
     frames: usize,
     pub grid: Option<BeatGrid>,
     pub pos: f64,
