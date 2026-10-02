@@ -24,6 +24,9 @@ env:
   CARGO_TERM_COLOR: always
   # One target dir for every Cargo workspace in the repo, so all .exe files land together.
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
+  # The room server baked into the desktop app and obsidian-probe (repository variable,
+  # e.g. 204.48.26.46:3478). Empty means the app opens without one and offers the demo.
+  OBSIDIAN_DEFAULT_SERVER: ${{ vars.OBSIDIAN_SERVER }}
 
 jobs:
   rust:
@@ -158,11 +161,14 @@ jobs:
         if: steps.plan.outputs.tauri != ''
         working-directory: ${{ steps.plan.outputs.tauri }}
         run: |
+          if [ -z "$OBSIDIAN_DEFAULT_SERVER" ]; then
+            echo "::warning::OBSIDIAN_SERVER repository variable is not set; this installer has no room server built in"
+          fi
           if [ -f package.json ]; then npm ci --no-audit --no-fund; fi
-          if [ -f package.json ] && grep -q '"tauri"' package.json; then
-            npm run tauri -- build
+          if [ -x node_modules/.bin/tauri ]; then
+            npx tauri build --bundles nsis
           else
-            npx --yes @tauri-apps/cli@^2 build
+            npx --yes @tauri-apps/cli@^2 build --bundles nsis
           fi
 
       - name: Collect the installer
