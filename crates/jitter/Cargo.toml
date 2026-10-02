@@ -1,0 +1,15 @@
+[package]
+name = "obsidian-jitter"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Fixed-delay playout buffer: arrival-envelope anchoring, loss recovery, ASRC drift tracking, re-anchoring."
+
+[dependencies]
+obsidian-protocol.workspace = true
+obsidian-codec.workspace = true
+obsidian-clock.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+rand.workspace = true

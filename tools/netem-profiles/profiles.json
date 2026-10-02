@@ -1,0 +1,18 @@
+[
+  { "name": "clean", "description": "Loopback, no impairment (baseline)", "delay_ms": 0.0 },
+  { "name": "same-city", "description": "8 ms one-way, 1 ms jitter, no loss", "delay_ms": 8.0, "jitter_ms": 1.0 },
+  { "name": "nyc-lon", "description": "38 ms one-way, 4 ms jitter, 0.3% random loss",
+    "delay_ms": 38.0, "jitter_ms": 4.0,
+    "loss": { "p_gb": 0.0, "p_bg": 1.0, "loss_good": 0.003, "loss_bad": 0.0 } },
+  { "name": "nyc-tyo", "description": "90 ms one-way, 8 ms jitter, 0.5% random loss",
+    "delay_ms": 90.0, "jitter_ms": 8.0,
+    "loss": { "p_gb": 0.0, "p_bg": 1.0, "loss_good": 0.005, "loss_bad": 0.0 } },
+  { "name": "bad-wifi", "description": "40 ms one-way, 5 ms jitter plus 20-80 ms stalls every ~2.5 s, 2% bursty loss (avg burst 25 ms)",
+    "delay_ms": 40.0, "jitter_ms": 5.0,
+    "loss": { "p_gb": 0.004, "p_bg": 0.2, "loss_good": 0.0, "loss_bad": 1.0 },
+    "spikes": { "prob": 0.002, "min_ms": 20.0, "max_ms": 80.0 } },
+  { "name": "route-change", "description": "nyc-lon, then the route steps from 38 to 60 ms one-way at t=50 s",
+    "delay_ms": 38.0, "jitter_ms": 4.0,
+    "loss": { "p_gb": 0.0, "p_bg": 1.0, "loss_good": 0.003, "loss_bad": 0.0 },
+    "steps": [ { "at_s": 50.0, "delay_ms": 60.0 } ] }
+]

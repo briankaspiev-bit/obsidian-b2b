@@ -1,0 +1,213 @@
+name: windows
+
+# Builds everything Obsidian B2B ships for Windows on a real Windows machine, runs the
+# tests there, and keeps a public download link fresh on every merge to main:
+# https://github.com/<owner>/<repo>/releases/tag/windows-build
+#
+# Each part is built only once its code exists on the branch, so this workflow does not
+# need editing as the engine, room service and desktop app land.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # One target dir for every Cargo workspace in the repo, so all .exe files land together.
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  rust:
+    name: Engine and test tools
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find Rust code
+        id: plan
+        run: |
+          roots=$(python .github/scripts/cargo_roots.py)
+          echo "Cargo workspaces: ${roots:-none}"
+          {
+            echo "roots<<EOF"
+            echo "$roots"
+            echo "EOF"
+            [ -n "$roots" ] && echo "any=true" || echo "any=false"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.plan.outputs.any == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.plan.outputs.any == 'true'
+        with:
+          workspaces: ". -> target"
+
+      - name: Test on Windows
+        if: steps.plan.outputs.any == 'true'
+        run: |
+          while IFS=$'\t' read -r root excludes; do
+            echo "::group::cargo test ($root)"
+            cargo test --release --manifest-path "$root/Cargo.toml" --workspace $excludes
+            echo "::endgroup::"
+          done <<< "${{ steps.plan.outputs.roots }}"
+
+      - name: Build Windows programs
+        if: steps.plan.outputs.any == 'true'
+        run: |
+          while IFS=$'\t' read -r root excludes; do
+            echo "::group::cargo build ($root)"
+            cargo build --release --manifest-path "$root/Cargo.toml" --workspace --bins $excludes
+            echo "::endgroup::"
+          done <<< "${{ steps.plan.outputs.roots }}"
+
+      # Two engine peers stream to each other over real Windows UDP sockets through the
+      # impairment proxy, then the bench scores the result. This is the first proof that
+      # the engine runs on Windows, not just compiles.
+      - name: Loopback session on Windows
+        if: steps.plan.outputs.any == 'true' && hashFiles('tools/bench/Cargo.toml') != ''
+        run: target/release/obsidian-bench.exe run --out bench-out --only clean --duration 30
+
+      - name: Package
+        if: steps.plan.outputs.any == 'true'
+        run: |
+          name=Obsidian-B2B-test-tools-windows
+          mkdir -p "dist/$name"
+          cp target/release/*.exe "dist/$name/"
+          cp .github/windows/README.txt "dist/$name/"
+          [ -f tools/netem-profiles/profiles.json ] && cp tools/netem-profiles/profiles.json "dist/$name/"
+          ls -l "dist/$name"
+          (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
+
+      - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.any == 'true'
+        with:
+          name: Obsidian-B2B-test-tools-windows
+          path: dist/Obsidian-B2B-test-tools-windows.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('bench-out/**') != ''
+        with:
+          name: windows-loopback-results
+          path: |
+            bench-out/**/*.md
+            bench-out/**/*.json
+          if-no-files-found: ignore
+
+  desktop:
+    name: Desktop app
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the desktop app
+        id: plan
+        run: |
+          ui=""
+          [ -f apps/desktop/ui/package-lock.json ] && ui=apps/desktop/ui
+          conf=$(git ls-files '*tauri.conf.json' '*tauri.conf.json5' '*Tauri.toml' | head -n1)
+          tauri_app=""
+          if [ -n "$conf" ]; then
+            # The Tauri CLI runs from the folder above src-tauri/.
+            tauri_app=$(dirname "$(dirname "$conf")")
+          fi
+          echo "UI: ${ui:-none}  Tauri app: ${tauri_app:-none}"
+          echo "ui=$ui" >> "$GITHUB_OUTPUT"
+          echo "tauri=$tauri_app" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.plan.outputs.ui != ''
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: ${{ steps.plan.outputs.ui }}/package-lock.json
+
+      - name: UI tests and build on Windows
+        if: steps.plan.outputs.ui != ''
+        working-directory: ${{ steps.plan.outputs.ui }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.plan.outputs.tauri != ''
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.plan.outputs.tauri != ''
+        with:
+          workspaces: ". -> target"
+
+      - name: Build the installer
+        if: steps.plan.outputs.tauri != ''
+        working-directory: ${{ steps.plan.outputs.tauri }}
+        run: |
+          if [ -f package.json ]; then npm ci --no-audit --no-fund; fi
+          if [ -f package.json ] && grep -q '"tauri"' package.json; then
+            npm run tauri -- build
+          else
+            npx --yes @tauri-apps/cli@^2 build
+          fi
+
+      - name: Collect the installer
+        if: steps.plan.outputs.tauri != ''
+        run: |
+          mkdir -p dist
+          find . -path ./node_modules -prune -o \( -path '*/bundle/nsis/*.exe' -o -path '*/bundle/msi/*.msi' \) -print \
+            | xargs -r -I{} cp {} dist/
+          ls -l dist
+          [ -n "$(ls dist)" ] || { echo "Tauri build produced no installer"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.tauri != ''
+        with:
+          name: Obsidian-B2B-installer-windows
+          path: dist/
+          if-no-files-found: error
+
+  # Keeps one public download page up to date with the latest build from main, so a
+  # DJ can download it without a GitHub account.
+  publish:
+    name: Update the download page
+    needs: [rust, desktop]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Obsidian-B2B-*
+          path: dist
+          merge-multiple: true
+
+      - name: Replace the windows-build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          files=(dist/*)
+          if [ ${#files[@]} -eq 0 ]; then echo "Nothing built yet"; exit 0; fi
+          gh release delete windows-build --cleanup-tag --yes || true
+          gh release create windows-build "${files[@]}" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Obsidian B2B for Windows (latest test build)" \
+            --notes "Built from ${GITHUB_SHA::7} on main. Unsigned test build: Windows will warn that the app is unrecognized. Install steps: https://github.com/${GH_REPO}/blob/main/docs/install-windows.md"
