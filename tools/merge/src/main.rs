@@ -79,6 +79,9 @@ enum Cmd {
         /// Fraction of 20 ms packets lost in the received stream.
         #[arg(long, default_value_t = 0.01)]
         loss: f64,
+        /// Silence before the first DJ starts, seconds.
+        #[arg(long, default_value_t = 3.0)]
+        lead_in_s: f64,
     },
     /// Score a merge report (and stems) against a synthetic session's truth.json.
     Check {
@@ -166,6 +169,7 @@ fn main() -> Result<()> {
             one_way_ab_ms,
             one_way_ba_ms,
             loss,
+            lead_in_s,
         } => {
             synth::run(&synth::SynthOpts {
                 out,
@@ -178,6 +182,7 @@ fn main() -> Result<()> {
                 ppm: [ppm_a, ppm_b],
                 one_way_ms: [one_way_ab_ms, one_way_ba_ms],
                 loss,
+                lead_in_s,
             })?;
         }
         Cmd::Check {

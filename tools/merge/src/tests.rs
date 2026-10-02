@@ -49,6 +49,8 @@ fn merge_recovers_synthetic_handoff() {
         ppm: [60.0, -40.0],
         one_way_ms: [95.0, 130.0],
         loss: 0.02,
+        // The opening DJ plays from the very first sample, as in real engine recordings.
+        lead_in_s: 0.0,
     })
     .unwrap();
     let opts = merge::Opts {
@@ -69,6 +71,10 @@ fn merge_recovers_synthetic_handoff() {
     .unwrap();
     assert_eq!(rep.handoffs.len(), 1);
     assert_eq!(rep.handoffs[0].method, merge::Method::Received);
+    // Both turns land in order and the master covers the whole set.
+    assert_eq!(rep.turns.len(), 2);
+    assert!(rep.turns[0].master_start_s >= 0.0 && rep.turns[1].master_start_s > rep.turns[0].master_start_s);
+    assert!(rep.master_s > 170.0, "master only {} s", rep.master_s);
     assert!(rep.true_peak_dbtp_after <= -0.9);
     let s = check::run(
         &dir.join("truth.json"),

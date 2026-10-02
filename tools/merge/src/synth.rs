@@ -24,6 +24,8 @@ pub struct SynthOpts {
     pub ppm: [f64; 2],
     pub one_way_ms: [f64; 2],
     pub loss: f64,
+    /// Silence before the first DJ starts, seconds (0 = playing from the first sample).
+    pub lead_in_s: f64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -296,7 +298,7 @@ pub fn run(o: &SynthOpts) -> Result<()> {
 
     let mut events = Vec::new();
     let mut truth_h = Vec::new();
-    let start0 = 3.0;
+    let start0 = o.lead_in_s;
     events.push(Event {
         t_session_ms: start0 * 1000.0 + rng.normal() * 15.0,
         kind: "on_air".into(),

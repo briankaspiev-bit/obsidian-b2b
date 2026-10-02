@@ -337,7 +337,14 @@ pub fn run(session_path: &Path, out: &Path, report_path: Option<&Path>, o: &Opts
     let fade = (0.02 * sr) as i64;
 
     // First DJ: master sample 0 is half a second before their first sound.
-    let on0 = first_active(&djs[first].env, 0, usize::MAX, o.gate_db).context("first DJ never makes a sound")? * hop;
+    // Plain first sound: the opening DJ is often already playing at sample 0, so there is no
+    // earlier tail to skip (first_active would skip their whole first run).
+    let on0 = djs[first]
+        .env
+        .iter()
+        .position(|&v| v > o.gate_db)
+        .context("first DJ never makes a sound")?
+        * hop;
     let mut c = vec![0.0f64; djs.len()];
     c[first] = (pre - on0 as i64) as f64;
     let mut pieces: Vec<Piece> = Vec::new();
