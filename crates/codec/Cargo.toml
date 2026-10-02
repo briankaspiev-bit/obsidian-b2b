@@ -1,0 +1,10 @@
+[package]
+name = "obsidian-codec"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Opus (CELT music mode) and PCM16 framing for the booth link."
+
+[dependencies]
+obsidian-protocol.workspace = true
+opus.workspace = true

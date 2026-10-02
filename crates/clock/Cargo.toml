@@ -1,0 +1,6 @@
+[package]
+name = "obsidian-clock"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Session clock, NTP-style peer clock sync, and line fitting for drift estimation."

@@ -1,0 +1,16 @@
+[package]
+name = "obsidian-engine-cli"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Headless booth engine peer: streams a WAV to the other peer and records the monitor output."
+
+[[bin]]
+name = "obsidian-peer"
+path = "src/main.rs"
+
+[dependencies]
+obsidian-engine.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
