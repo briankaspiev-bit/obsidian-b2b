@@ -13,6 +13,7 @@ members = [
     "crates/live",
     "tools/netem-proxy",
     "tools/bench",
+    "services/rendezvous",
 ]
 # tools/merge is owned by another workstream and builds on its own.
 exclude = ["tools/merge"]

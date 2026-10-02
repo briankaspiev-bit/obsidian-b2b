@@ -21,8 +21,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 # CI builds as the normal user first (root has no rustup toolchain there).
-[[ -n ${SKIP_BUILD:-} ]] || cargo build --quiet --bins
-BIN="$PWD/target/debug"
+[[ -n ${SKIP_BUILD:-} ]] || cargo build --quiet -p obsidian-rendezvous --bins
+# A member of the repo-root workspace, so binaries land in the root target/.
+BIN="$(cd ../.. && pwd)/target/debug"
 WORK="$(mktemp -d)"
 NS=(inet srv rtA rtB djA djA2 djB)
 SERVER=198.51.100.10:3478

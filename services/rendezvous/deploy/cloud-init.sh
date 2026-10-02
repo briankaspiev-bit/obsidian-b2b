@@ -5,7 +5,7 @@
 # the result into the login banner so anyone opening the console sees it.
 # Progress log: /var/log/cloud-init-output.log
 export HOME=/root
-BRANCH=claude/project-thread-qdtv1w
+BRANCH=main
 echo "Obsidian rendezvous: still installing, check again in a few minutes." >/etc/motd
 if curl -sSf "https://raw.githubusercontent.com/briankaspiev-bit/obsidian-b2b/$BRANCH/services/rendezvous/deploy/install.sh" \
     | BRANCH=$BRANCH bash; then
