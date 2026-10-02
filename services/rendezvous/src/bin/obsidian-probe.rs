@@ -8,7 +8,8 @@
 //! Windows).
 //!
 //! Server address comes from `--server`, then `OBSIDIAN_SERVER`, then the
-//! address baked in at build time via `OBSIDIAN_DEFAULT_SERVER`.
+//! address baked in at build time via `OBSIDIAN_DEFAULT_SERVER`, then the
+//! project's own server ([`DEFAULT_SERVER`]).
 
 use std::io::{self, BufRead, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -17,6 +18,9 @@ use std::time::{Duration, Instant};
 
 use obsidian_rendezvous::client::{create_room, join_room, ClientConfig, Connection, Path};
 use obsidian_rendezvous::proto::format_code;
+
+/// The project's rendezvous server (DigitalOcean, New York).
+const DEFAULT_SERVER: &str = "204.48.26.46:3478";
 
 const MAGIC: [u8; 2] = [0x0B, 0x50];
 const PING: u8 = 1;
@@ -64,7 +68,8 @@ fn parse_args() -> Option<Args> {
         mode: None,
         server: std::env::var("OBSIDIAN_SERVER")
             .ok()
-            .or(option_env!("OBSIDIAN_DEFAULT_SERVER").map(String::from)),
+            .or(option_env!("OBSIDIAN_DEFAULT_SERVER").map(String::from))
+            .or(Some(DEFAULT_SERVER.to_string())),
         seconds: 30,
         force_relay: false,
         interactive: false,
