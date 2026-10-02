@@ -63,6 +63,8 @@ function deckInfo(st: LiveStatus): DeckInfo {
     fader: st.fader,
     partnerVolume: st.partner_volume,
     ghostSays: st.ghost_says,
+    shield: st.shield ?? false,
+    partnerShield: st.partner_shield ?? false,
   };
 }
 

@@ -297,8 +297,9 @@ describe('two desktop apps', () => {
       now_ms: 5000,
       partner_beat: { period_ms: 480, beat_ms: 4800, bar_ms: null },
       ghost_says: 'on air',
+      shield: true,
     });
-    expect(feed!.info).toMatchObject({ nowMs: 5000, partnerOnAir: true, ghostSays: 'on air' });
+    expect(feed!.info).toMatchObject({ nowMs: 5000, partnerOnAir: true, ghostSays: 'on air', shield: true, partnerShield: false });
 
     e.deck({ kind: 'playPause' });
     e.deck({ kind: 'nudge', ms: -10 });

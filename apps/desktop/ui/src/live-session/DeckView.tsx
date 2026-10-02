@@ -320,6 +320,18 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
             {fmtBpm(partnerBpm)} <small>BPM</small>
           </span>
           {info?.partnerOnAir && <span className="deck__air">ON AIR</span>}
+          {(info?.shield || info?.partnerShield) && (
+            <span
+              className="deck__shield"
+              title={
+                info.shield
+                  ? `Your connection is dropping sound, so ${partnerName} is sending extra copies`
+                  : `${partnerName}'s connection is dropping sound, so you are sending extra copies`
+              }
+            >
+              WI-FI SHIELD ON
+            </span>
+          )}
           {info?.ghostSays && <span className="deck__note">{info.ghostSays}</span>}
         </div>
         <div className="deck__label" data-role={youRole}>

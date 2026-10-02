@@ -47,6 +47,10 @@ export interface DeckInfo {
   partnerVolume: number;
   /** Practice: what the ghost DJ is doing. */
   ghostSays: string | null;
+  /** Wi-Fi shield on for what you hear (your connection drops sound). */
+  shield?: boolean;
+  /** Wi-Fi shield on for what the partner hears. */
+  partnerShield?: boolean;
 }
 
 export type DeckAction =

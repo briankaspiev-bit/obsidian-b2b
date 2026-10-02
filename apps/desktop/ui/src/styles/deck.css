@@ -66,7 +66,8 @@
   color: var(--text-3);
 }
 .deck__air,
-.deck__sync {
+.deck__sync,
+.deck__shield {
   align-self: flex-start;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -81,6 +82,10 @@
 .deck__sync {
   border: 1px solid var(--cue);
   color: var(--cue);
+}
+.deck__shield {
+  border: 1px solid var(--attention);
+  color: var(--attention);
 }
 .deck__label .deck__sync + .deck__air {
   margin-top: 2px;

@@ -79,6 +79,10 @@ export interface LiveStatus {
   partner_volume: number;
   /** Practice: what the ghost DJ is doing. */
   ghost_says: string | null;
+  /** Wi-Fi shield: you asked the partner for extra copies of their sound. */
+  shield?: boolean;
+  /** The partner asked you for extra copies of yours. */
+  partner_shield?: boolean;
 }
 
 export interface Practice {
