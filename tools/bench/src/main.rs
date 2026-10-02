@@ -8,7 +8,7 @@
 //! then scores both directions and writes bench-out/summary.md.
 
 mod analyze;
-mod gen;
+use obsidian_testaudio as gen;
 mod session;
 mod sim;
 

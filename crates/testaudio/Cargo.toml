@@ -1,0 +1,11 @@
+[package]
+name = "obsidian-testaudio"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Generated test music (125 BPM grooves) for the bench and the solo practice ghost DJ."
+
+[dependencies]
+anyhow.workspace = true
+hound.workspace = true
+rand.workspace = true

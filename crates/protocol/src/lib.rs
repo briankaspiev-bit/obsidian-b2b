@@ -20,6 +20,7 @@ const KIND_MEDIA: u8 = 1;
 const KIND_PING: u8 = 2;
 const KIND_PONG: u8 = 3;
 const KIND_BYE: u8 = 4;
+const KIND_STATE: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -77,6 +78,18 @@ pub enum Packet {
         t2_us: i64,
     },
     Bye,
+    /// Booth state, sent a few times a second and right away on a change.
+    /// `epoch` counts handoffs: whoever presses TAKE OVER sets it to one more
+    /// than the highest epoch it has seen, so the newest claim wins even when
+    /// packets are lost; equal epochs (both pressed at once) go to the lower `tiebreak`.
+    State {
+        epoch: u32,
+        on_air: bool,
+        /// The DJ coming in is cued and ready to take over (shown on the other screen).
+        ready: bool,
+        tiebreak: u32,
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +194,21 @@ impl Packet {
                 out.extend_from_slice(&t2_us.to_be_bytes());
             }
             Packet::Bye => out.push(KIND_BYE),
+            Packet::State {
+                epoch,
+                on_air,
+                ready,
+                tiebreak,
+                name,
+            } => {
+                out.push(KIND_STATE);
+                out.extend_from_slice(&epoch.to_be_bytes());
+                out.push(*on_air as u8 | (*ready as u8) << 1);
+                out.extend_from_slice(&tiebreak.to_be_bytes());
+                let n = &name.as_bytes()[..name.len().min(64)];
+                out.push(n.len() as u8);
+                out.extend_from_slice(n);
+            }
         }
     }
 
@@ -225,6 +253,20 @@ impl Packet {
                 t2_us: r.i64()?,
             }),
             KIND_BYE => Ok(Packet::Bye),
+            KIND_STATE => {
+                let epoch = r.u32()?;
+                let flags = r.u8()?;
+                let tiebreak = r.u32()?;
+                let n = r.u8()? as usize;
+                let name = String::from_utf8_lossy(r.take(n)?).into_owned();
+                Ok(Packet::State {
+                    epoch,
+                    on_air: flags & 1 != 0,
+                    ready: flags & 2 != 0,
+                    tiebreak,
+                    name,
+                })
+            }
             k => Err(DecodeError::BadKind(k)),
         }
     }
@@ -269,6 +311,13 @@ mod tests {
                 t2_us: 4,
             },
             Packet::Bye,
+            Packet::State {
+                epoch: 3,
+                on_air: false,
+                ready: true,
+                tiebreak: 99,
+                name: "Brian".into(),
+            },
         ] {
             p.encode(&mut buf);
             assert_eq!(Packet::decode(&buf).unwrap(), p);

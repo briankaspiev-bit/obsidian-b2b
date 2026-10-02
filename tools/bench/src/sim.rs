@@ -7,12 +7,12 @@
 //! simulator has no host noise, is reproducible from a seed, and can run the
 //! report's 60-minute criteria in about a minute.
 
-use crate::gen;
 use obsidian_clock::percentile;
 use obsidian_codec::{CodecConfig, Decoder, Encoder};
 use obsidian_jitter::{PlayoutBuffer, PlayoutConfig};
 use obsidian_netem_proxy::{Impairer, Profile};
 use obsidian_protocol::{Frame, MediaPacket};
+use obsidian_testaudio as gen;
 use serde::Serialize;
 use std::collections::VecDeque;
 

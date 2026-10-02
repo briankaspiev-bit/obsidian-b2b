@@ -15,6 +15,8 @@ export interface SessionEngine {
   getRoom(): RoomState;
   subscribeRoom(listener: () => void): Unsubscribe;
 
+  /** Your name (and city) as the other DJ will see it. */
+  setLocalProfile(profile: { name: string; city: string }): void;
   /** Opens a private room and shows its invite code. */
   createRoom(): void;
   /** Looks up an invite code; on failure sets RoomState.joinError. */

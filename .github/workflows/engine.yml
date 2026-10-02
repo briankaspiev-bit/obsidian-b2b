@@ -18,6 +18,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: ALSA headers (the sound card layer links against them on Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Test (Opus is built from source by opusic-sys)
         run: cargo test --workspace --release
       - name: Build all binaries (the bench runs obsidian-netem and obsidian-peer)
@@ -26,3 +29,16 @@ jobs:
       - name: Bench smoke (loopback, 30 s)
         if: matrix.os == 'ubuntu-latest'
         run: cargo run --release -p obsidian-bench -- run --out bench-out --only clean --duration 30
+      - name: Live smoke (solo practice with the ghost DJ on a simulated sound card, 60 s)
+        if: matrix.os != 'macos-latest'
+        shell: bash
+        run: |
+          cargo run --release -p obsidian-live -- solo --sim-output --headless 60 --ghost-return 10 --record live-out --script "15:sync,16:play,35:take" | tee live.log
+          grep -q "SYNC locked" live.log
+          grep -q "You took over" live.log
+      - name: Upload the Windows build
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-live-windows
+          path: target/release/obsidian-live.exe

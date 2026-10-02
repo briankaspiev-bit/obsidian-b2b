@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useEngineMode } from '../app/engineMode';
 import { SessionHeader } from '../live-session/SessionHeader';
 import { useEngine, useRoomState } from '../session/useSession';
 
@@ -7,6 +8,7 @@ export function HomeScreen() {
   const engine = useEngine();
   const room = useRoomState();
   const [code, setCode] = useState('');
+  const { mode, canSwitch, setMode } = useEngineMode();
 
   const onJoin = (e: FormEvent) => {
     e.preventDefault();
@@ -27,14 +29,44 @@ export function HomeScreen() {
           <p className="home__lede">Keep your decks and your software. Obsidian connects your mixer to theirs.</p>
         </section>
 
+        <div className="home__you">
+          <label className="home__you-label" htmlFor="dj-name">
+            YOUR DJ NAME
+          </label>
+          <input
+            id="dj-name"
+            className="text-input"
+            value={room.local.name}
+            onChange={(e) => engine.setLocalProfile({ name: e.target.value, city: room.local.city })}
+            placeholder="How the other DJ sees you"
+            autoComplete="nickname"
+            spellCheck={false}
+            maxLength={40}
+          />
+          <input
+            id="dj-city"
+            className="text-input text-input--city"
+            value={room.local.city}
+            onChange={(e) => engine.setLocalProfile({ name: room.local.name, city: e.target.value })}
+            placeholder="City"
+            aria-label="Your city"
+            maxLength={40}
+          />
+        </div>
+
         <div className="home__cards">
           <section className="home-card" aria-labelledby="create-title">
             <h2 id="create-title" className="home-card__title">
               Start a booth
             </h2>
             <p className="home-card__text">Get a code and send it to the DJ you want to play with.</p>
-            <button type="button" className="btn btn--primary" onClick={engine.createRoom}>
-              CREATE ROOM
+            {room.createError && (
+              <p className="home-card__error fade-in" role="alert">
+                {room.createError}
+              </p>
+            )}
+            <button type="button" className="btn btn--primary" onClick={engine.createRoom} disabled={room.creating}>
+              {room.creating ? 'OPENING ROOM…' : 'CREATE ROOM'}
             </button>
           </section>
 
@@ -67,6 +99,26 @@ export function HomeScreen() {
             </button>
           </form>
         </div>
+
+        {canSwitch && (
+          <p className="home__mode">
+            {mode === 'real' ? (
+              <>
+                No one to play with right now?{' '}
+                <button type="button" className="link-btn" onClick={() => setMode('demo')}>
+                  Try the demo
+                </button>
+              </>
+            ) : (
+              <>
+                You&rsquo;re in the demo: the other DJ is simulated.{' '}
+                <button type="button" className="link-btn" onClick={() => setMode('real')}>
+                  Back to real rooms
+                </button>
+              </>
+            )}
+          </p>
+        )}
       </main>
     </div>
   );

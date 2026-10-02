@@ -1,23 +1,26 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './app/App';
-import { MockControls } from './live-session/MockControls';
-import { MockSessionEngine } from './session/mockEngine';
-import { SessionEngineContext } from './session/useSession';
+import { Root } from './app/Root';
+import { bridge, inDesktopApp, type EngineInfo } from './session/bridge';
 import './styles/tokens.css';
 import './styles/live-session.css';
 import './styles/pre-session.css';
 
-// No engine exists yet, so the screens run on the isolated mock. Swapping in
-// the real engine means providing a different SessionEngine here.
-const engine = new MockSessionEngine();
-const showMockControls = import.meta.env.VITE_HIDE_MOCK_CONTROLS !== 'true';
+async function start() {
+  // Inside the desktop app the real engine is available; in a browser only the demo.
+  let info: EngineInfo | null = null;
+  if (inDesktopApp()) {
+    try {
+      info = await bridge.engineInfo();
+    } catch {
+      info = null;
+    }
+  }
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <Root info={info} />
+    </StrictMode>,
+  );
+}
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <SessionEngineContext.Provider value={engine}>
-      <App />
-      {showMockControls && <MockControls engine={engine} />}
-    </SessionEngineContext.Provider>
-  </StrictMode>,
-);
+void start();

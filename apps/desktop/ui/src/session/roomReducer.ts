@@ -1,10 +1,14 @@
 import type { AudioDevice, BoothCheck, CheckStepId, CheckStepStatus, RoomState } from './types';
 
 export type RoomAction =
+  | { type: 'setLocal'; local: RoomState['local'] }
+  | { type: 'createStarted' }
+  | { type: 'createFailed'; error: string }
   | { type: 'joinStarted' }
   | { type: 'joinFailed'; error: string }
   | { type: 'entered'; code: string; isHost: boolean }
   | { type: 'remoteJoined'; remote: NonNullable<RoomState['remote']> }
+  | { type: 'remoteProfile'; remote: NonNullable<RoomState['remote']> }
   | { type: 'remoteLeft' }
   | { type: 'remoteReady'; ready: boolean }
   | { type: 'devicesFound'; inputs: AudioDevice[]; outputs: AudioDevice[] }
@@ -44,6 +48,8 @@ export function initialRoom(local: RoomState['local']): RoomState {
     isHost: false,
     joining: false,
     joinError: null,
+    creating: false,
+    createError: null,
     local,
     remote: null,
     remotePresence: 'waiting',
@@ -72,14 +78,22 @@ function withCountdown(s: RoomState, atMs: number, countdownMs: number): RoomSta
  */
 export function roomReducer(s: RoomState, a: RoomAction): RoomState {
   switch (a.type) {
+    case 'setLocal':
+      return { ...s, local: a.local };
+    case 'createStarted':
+      return { ...s, creating: true, createError: null, joinError: null };
+    case 'createFailed':
+      return { ...s, creating: false, createError: a.error };
     case 'joinStarted':
-      return { ...s, joining: true, joinError: null };
+      return { ...s, joining: true, joinError: null, createError: null };
     case 'joinFailed':
       return { ...s, joining: false, joinError: a.error };
     case 'entered':
-      return { ...s, phase: 'booth', code: a.code, isHost: a.isHost, joining: false, joinError: null };
+      return { ...s, phase: 'booth', code: a.code, isHost: a.isHost, joining: false, joinError: null, creating: false };
     case 'remoteJoined':
       return { ...s, remote: a.remote, remotePresence: 'joined' };
+    case 'remoteProfile':
+      return s.remote ? { ...s, remote: { ...s.remote, ...a.remote } } : s;
     case 'remoteLeft':
       return { ...s, remotePresence: 'waiting', localReady: false, startsAtMs: null, check: freshCheck() };
     case 'remoteReady': {

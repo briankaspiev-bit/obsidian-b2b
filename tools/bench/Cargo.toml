@@ -16,7 +16,8 @@ obsidian-align.workspace = true
 obsidian-clock.workspace = true
 obsidian-jitter.workspace = true
 obsidian-protocol.workspace = true
-obsidian-netem-proxy = { path = "../netem-proxy" }
+obsidian-netem-proxy.workspace = true
+obsidian-testaudio.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde.workspace = true
