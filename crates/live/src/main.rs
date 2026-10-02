@@ -560,10 +560,10 @@ fn screen(
                         KeyCode::Char('.') => ctl.send(Cmd::Nudge(10.0)),
                         KeyCode::Char('-') => ctl.send(Cmd::Pitch(-0.1)),
                         KeyCode::Char('=') | KeyCode::Char('+') => ctl.send(Cmd::Pitch(0.1)),
-                        KeyCode::Up => ctl.set_fader(ctl.fader() + 0.05),
-                        KeyCode::Down => ctl.set_fader(ctl.fader() - 0.05),
-                        KeyCode::Right => ctl.set_partner_volume(ctl.partner_volume() + 0.05),
-                        KeyCode::Left => ctl.set_partner_volume(ctl.partner_volume() - 0.05),
+                        KeyCode::Up => ctl.set_fader(step(ctl.fader(), 1.0)),
+                        KeyCode::Down => ctl.set_fader(step(ctl.fader(), -1.0)),
+                        KeyCode::Right => ctl.set_partner_volume(step(ctl.partner_volume(), 1.0)),
+                        KeyCode::Left => ctl.set_partner_volume(step(ctl.partner_volume(), -1.0)),
                         KeyCode::Char('g') => {
                             if let Some(g) = ghost {
                                 g.send(Cmd::GhostComeBack)
@@ -650,8 +650,19 @@ fn draw(
             st.recovered_10s, st.concealed_10s, st.concealed_total, st.reanchors, st.send_kbps
         ),
         String::new(),
-        format!(" You       fader {} {:>3.0}%   {}", bar(st.fader, 1.0, 20), st.fader * 100.0, meter(st.local_peak)),
-        format!(" {:<9} volume {} {:>3.0}%  {}", trunc(&partner, 9), bar(st.partner_volume, 2.0, 20), st.partner_volume * 100.0, meter(st.partner_peak)),
+        format!(" You       fader {} {:>3.0}%   {}", bar(knob(st.fader), 1.0, 20), knob(st.fader) * 100.0, meter(st.local_peak)),
+        format!(
+            " {:<9} volume {} {:>3.0}%  {}{}",
+            trunc(&partner, 9),
+            bar(knob(st.partner_volume), knob(2.0), 20),
+            knob(st.partner_volume) * 100.0,
+            meter(st.partner_peak),
+            if st.partner_peak < 0.001 && st.phase == "live" {
+                if solo { "   (silent: the ghost has faded out; G brings it back)" } else { "   (silent)" }
+            } else {
+                ""
+            }
+        ),
     ];
     if let Some(d) = &st.deck {
         lines.push(format!(
@@ -808,6 +819,25 @@ fn phase_meter(b: &obsidian_live::BeatView, partner: &str, playing: bool) -> Vec
         ));
     }
     out
+}
+
+/// Volume keys move a knob 10% per press on an audio taper, like a real fader:
+/// equal steps sound equal (straight gain steps of 5% were too small to hear).
+fn taper(knob: f32) -> f32 {
+    let k = knob.max(0.0);
+    if k < 0.05 {
+        0.0
+    } else {
+        k.powf(2.5)
+    }
+}
+
+fn step(gain: f32, dir: f32) -> f32 {
+    taper(((knob(gain) * 10.0).round() + dir) / 10.0)
+}
+
+fn knob(gain: f32) -> f32 {
+    gain.max(0.0).powf(0.4)
 }
 
 fn trunc(s: &str, n: usize) -> String {
