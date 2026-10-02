@@ -8,7 +8,8 @@
 //! Windows).
 //!
 //! Server address comes from `--server`, then `OBSIDIAN_SERVER`, then the
-//! address baked in at build time via `OBSIDIAN_DEFAULT_SERVER`.
+//! address baked in at build time via `OBSIDIAN_DEFAULT_SERVER`, then the
+//! project's own server ([`DEFAULT_SERVER`]).
 
 use std::io::{self, BufRead, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -17,6 +18,9 @@ use std::time::{Duration, Instant};
 
 use obsidian_rendezvous::client::{create_room, join_room, ClientConfig, Connection, Path};
 use obsidian_rendezvous::proto::format_code;
+
+/// The project's rendezvous server (DigitalOcean, New York).
+const DEFAULT_SERVER: &str = "204.48.26.46:3478";
 
 const MAGIC: [u8; 2] = [0x0B, 0x50];
 const PING: u8 = 1;
@@ -64,7 +68,8 @@ fn parse_args() -> Option<Args> {
         mode: None,
         server: std::env::var("OBSIDIAN_SERVER")
             .ok()
-            .or(option_env!("OBSIDIAN_DEFAULT_SERVER").map(String::from)),
+            .or(option_env!("OBSIDIAN_DEFAULT_SERVER").map(String::from))
+            .or(Some(DEFAULT_SERVER.to_string())),
         seconds: 30,
         force_relay: false,
         interactive: false,
@@ -358,12 +363,27 @@ fn measure(conn: &Connection, duration: Duration) -> io::Result<Report> {
             let recent: Vec<f64> = report.rtts_ms.iter().rev().take(100).copied().collect();
             let mut sorted = recent.clone();
             sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            // Pings from the last second may still be in flight; only older
+            // unanswered ones count as lost.
+            let settled = Instant::now() - Duration::from_secs(1);
+            let mut lost = 0u64;
+            for (sent, counted) in sent_at.iter().flatten() {
+                if *counted && *sent <= settled {
+                    lost += 1;
+                }
+            }
+            let old = report.counted_answered + lost;
+            let live_loss = if old == 0 {
+                0.0
+            } else {
+                100.0 * lost as f64 / old as f64
+            };
             println!(
                 "t={:>3}s  rtt median {:>6.1} ms  p99 {:>6.1} ms  loss {:>5.2}%  jitter p99 {:>5.1} ms",
                 start.elapsed().as_secs(),
                 percentile(&sorted, 0.5),
                 percentile(&sorted, 0.99),
-                report.loss_out(),
+                live_loss,
                 report.jitter_p99()
             );
         }
