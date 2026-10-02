@@ -156,6 +156,17 @@ fn each_slider_moves_only_its_own_side_in_the_headphones() {
     let nothing = level(0.0, 0.0);
     let ghost_loud = level(0.0, 2.0);
 
+    // After you take over, the Ghost rides along under you; its slider still mutes it.
+    ctl.send(Cmd::TakeOver);
+    wait_for(&ctl, 5, |s| s.on_air);
+    let riding = level(0.0, 1.0);
+    let riding_muted = level(0.0, 0.0);
+    eprintln!("after takeover: ghost {riding:.3} muted {riding_muted:.4}");
+    assert!(
+        riding_muted < 0.001,
+        "ghost muted after takeover: {riding_muted}"
+    );
+
     ctl.stop();
     engine.join().unwrap().unwrap();
     ghost.stop().unwrap();
