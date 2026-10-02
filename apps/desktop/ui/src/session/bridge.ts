@@ -3,6 +3,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { BeatClock, DeckStatus, ScopeChunk } from './deck';
 import type { AudioDevice } from './types';
 
 /** True inside the desktop app; false in a browser or the preview. */
@@ -67,6 +68,28 @@ export interface LiveStatus {
   local_peak: number;
   partner_peak: number;
   send_kbps: number;
+  /** Output clock at this status (ms since the set started). */
+  now_ms: number;
+  you_beat: BeatClock | null;
+  partner_beat: BeatClock | null;
+  partner_bpm: number | null;
+  /** The built-in deck (practice, or a music file); null when you send your mixer. */
+  deck: DeckStatus | null;
+  fader: number;
+  partner_volume: number;
+  /** Practice: what the ghost DJ is doing. */
+  ghost_says: string | null;
+  /** Wi-Fi shield: you asked the partner for extra copies of their sound. */
+  shield?: boolean;
+  /** The partner asked you for extra copies of yours. */
+  partner_shield?: boolean;
+}
+
+export interface Practice {
+  partnerName: string;
+  /** The simulated link, e.g. "nyc-lon". */
+  path: string;
+  track: string;
 }
 
 /** dBFS; null is silence (JSON has no -Infinity). */
@@ -93,6 +116,16 @@ export const bridge = {
   liveSetReady: (ready: boolean) => invoke<void>('live_set_ready', { ready }),
   liveSetFader: (value: number) => invoke<void>('live_set_fader', { value }),
   liveSetPartnerVolume: (value: number) => invoke<void>('live_set_partner_volume', { value }),
+  /** Copies a picked music file into the app; resolves with its path for startPractice. */
+  loadTrack: async (file: File) =>
+    invoke<string>('load_track', new Uint8Array(await file.arrayBuffer()), { headers: { 'x-name': encodeURIComponent(file.name) } }),
+  /** Your deck against the ghost DJ over a simulated long-distance link. */
+  startPractice: (name: string, track: string | null) => invoke<Practice>('start_practice', { name, track }),
+  deckCommand: (action: 'playPause' | 'cue' | 'sync' | 'nudge' | 'pitch', value?: number) =>
+    invoke<void>('deck_command', { action, value: value ?? null }),
+  ghostComeBack: () => invoke<void>('ghost_come_back'),
+  /** Your deck's whole track, 3 bytes (low, mid, high) per 5 ms. */
+  deckWave: () => invoke<ArrayBuffer>('deck_wave'),
   /** Ends the set; resolves with the folder its recordings went to. */
   stopLive: () => invoke<string | null>('stop_live'),
 
@@ -102,6 +135,7 @@ export const bridge = {
   onLocalLevel: (f: (l: WireLevel) => void) => listen<WireLevel>('local-level', (e) => f(e.payload)),
   onRemoteLevel: (f: (l: WireLevel) => void) => listen<WireLevel>('remote-level', (e) => f(e.payload)),
   onLiveStatus: (f: (s: LiveStatus) => void) => listen<LiveStatus>('live-status', (e) => f(e.payload)),
+  onLiveScope: (f: (c: ScopeChunk) => void) => listen<ScopeChunk>('live-scope', (e) => f(e.payload)),
 };
 
 export type Unlisten = UnlistenFn;

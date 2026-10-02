@@ -5,6 +5,7 @@ import { bridge, inDesktopApp, type EngineInfo } from './session/bridge';
 import './styles/tokens.css';
 import './styles/live-session.css';
 import './styles/pre-session.css';
+import './styles/deck.css';
 
 async function start() {
   // Inside the desktop app the real engine is available; in a browser only the demo.

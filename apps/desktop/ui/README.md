@@ -46,6 +46,8 @@ OBSIDIAN_SERVER=127.0.0.1:3478 npx tauri dev                     # then a second
 | TAKE OVER, emergency take over | yes, through the engine (its `State` packet) | |
 | READY during the set | yes, through the engine (`State` ready flag); the other DJ ending the set ends it here too | |
 | "Everything this laptop plays" as your send | yes, Windows 10 2004+ (system audio minus Obsidian itself) | |
+| DJ view: both waveforms, beat grids, phase meter, BPM | yes, from the engine's waveform columns and beat clocks | the other DJ's bar position (beats only for now) |
+| Practice with the Ghost DJ | yes: the built-in deck (built-in groove or your own track) against the engine's ghost over a simulated NYC to London link | |
 
 See `BRIDGE.md` for the commands, events and peer messages.
 
@@ -55,12 +57,15 @@ See `BRIDGE.md` for the commands, events and peer messages.
   `sessionReducer.ts`, `engine.ts` (the `SessionEngine` interface every
   screen talks to), `tauriEngine.ts` (the real one), `bridge.ts` (typed Tauri
   calls), `peer.ts` (messages between the two apps, Booth Check scoring),
-  `mockEngine.ts` (the demo).
+  `mockEngine.ts` (the demo), `deck.ts` (the DJ view's feed and phase math),
+  `simDeck.ts` (the demo's stand-in for the engine's deck data).
 - `src/app/` — `Root.tsx` picks the engine (real in the app, demo in a
   browser or on request), `App.tsx` picks the screen.
-- `src/home/`, `src/booth/`, `src/live-session/` — the screens.
+- `src/home/`, `src/booth/`, `src/live-session/` — the screens. The DJ view
+  is `live-session/DeckView.tsx`, its keys `live-session/deckKeys.ts`.
 - `src-tauri/src/` — `lib.rs` (commands, events), `devices.rs`, `link.rs`
-  (booth link), `nettest.rs`, `live.rs` (starts the engine's live session).
+  (booth link), `nettest.rs`, `live.rs` (starts the engine's live session, or
+  practice against its ghost DJ).
 
 TAKE OVER only changes coordination state and logs events. It never mutes,
 cuts or reroutes anyone's audio.

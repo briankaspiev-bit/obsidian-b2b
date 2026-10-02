@@ -10,6 +10,7 @@
 
 use crate::deck::{refine_period, Deck, DeckStatus, HOP};
 use crate::ghost::{Ghost, GhostPlan};
+use crate::scope::{track_wave, BandSplit, Bands, BeatClock, Column, Scope, ScopeChunk};
 use anyhow::Result;
 use obsidian_align::{beat_phase, estimate_period, phase_lag, quantize_extra, OnsetTracker};
 use obsidian_audio_io::{AdaptiveResampler, AudioFifo};
@@ -139,6 +140,11 @@ pub struct LiveStatus {
     pub send_kbps: f64,
     pub capture_underruns: u64,
     pub uptime_s: f64,
+    /// Output clock at this status (ms since the session started; see [`crate::scope`]).
+    pub now_ms: f64,
+    /// Where your beats and the partner's beats fall (as you hear them), when there's a beat.
+    pub you_beat: Option<BeatClock>,
+    pub partner_beat: Option<BeatClock>,
     /// Newest last, "mm:ss text".
     pub events: Vec<String>,
 }
@@ -211,6 +217,8 @@ pub struct LiveControls {
     stop: AtomicBool,
     cmds: Mutex<Vec<Cmd>>,
     pub status: Mutex<LiveStatus>,
+    scope: Mutex<Scope>,
+    deck_wave: Mutex<Option<Arc<Vec<Bands>>>>,
 }
 
 impl Default for LiveControls {
@@ -221,6 +229,8 @@ impl Default for LiveControls {
             stop: AtomicBool::new(false),
             cmds: Mutex::new(Vec::new()),
             status: Mutex::new(LiveStatus::default()),
+            scope: Mutex::new(Scope::default()),
+            deck_wave: Mutex::new(None),
         }
     }
 }
@@ -253,6 +263,14 @@ impl LiveControls {
     }
     pub fn status(&self) -> LiveStatus {
         self.status.lock().unwrap().clone()
+    }
+    /// Waveform columns from index `from` on (pass the previous chunk's end to stream).
+    pub fn scope_since(&self, from: u64) -> ScopeChunk {
+        self.scope.lock().unwrap().since(from)
+    }
+    /// The deck's whole track, 5 ms per column at its own speed (for the view ahead).
+    pub fn deck_wave(&self) -> Option<Arc<Vec<Bands>>> {
+        self.deck_wave.lock().unwrap().clone()
     }
 }
 
@@ -514,6 +532,9 @@ pub fn run_live(
             )),
         ),
     };
+    if let Some(d) = &deck {
+        *ctl.deck_wave.lock().unwrap() = Some(Arc::new(track_wave(&d.program)));
+    }
     let mut ghost = cfg.ghost.take().map(Ghost::new);
     let capture_shift_hops = if capture.is_some() {
         (cfg.sink_latency_ms * 48_000.0 / 1e3 / HOP as f64).round() as usize
@@ -553,6 +574,9 @@ pub fn run_live(
     let mut next_beat_check: Option<i64> = None;
     let mut next_sync: i64 = 0;
     let mut partner_bpm: Option<f64> = None;
+    let mut partner_beat: Option<BeatClock> = None;
+    let mut you_heard_beat: Option<BeatClock> = None;
+    let (mut you_bands, mut partner_bands) = (BandSplit::default(), BandSplit::default());
     let mut pgrid: Option<PartnerGrid> = None;
     let mut want_shield = false;
     let mut next_shield_check = start;
@@ -792,6 +816,10 @@ pub fn run_live(
             }
         }
         remote_peak = remote_peak.max(peak(&remote_out));
+        ctl.scope.lock().unwrap().push(Column {
+            you: you_bands.column(&local),
+            partner: partner_bands.column(&remote_out),
+        });
 
         // ---- headphones ----
         if let Some(sink) = &cfg.sink {
@@ -930,6 +958,7 @@ pub fn run_live(
                 if let Some(p0) = estimate_period(renv, hop_s, 70.0, 180.0) {
                     let pr = refine_period(renv, p0, 4);
                     partner_bpm = Some(60.0 / (pr * hop_s));
+                    partner_beat = heard_beat(renv, pr, t + frame_us - start);
                     if let Some(d) = deck
                         .as_mut()
                         .filter(|d| d.sync && d.playing && !on_air && d.grid.is_some())
@@ -939,10 +968,28 @@ pub fn run_live(
                     }
                     let hf = &remote_hf.env[remote_hf.env.len().saturating_sub(w)..];
                     pgrid = partner_grid(deck.as_ref(), renv, hf, pr, t + frame_us);
+                    // The bar guess SYNC uses, as a beat 1 on the screen's clock.
+                    if let (Some(b), Some(g)) =
+                        (partner_beat.as_mut(), pgrid.filter(|g| g.bars_known))
+                    {
+                        b.bar_ms = Some((g.base_us + g.down_k * g.per_us - start as f64) / 1e3);
+                    }
                 }
             } else {
                 partner_bpm = None;
+                partner_beat = None;
                 pgrid = None;
+            }
+            // Captured music: find your beats the same way, from what was sent.
+            if capture.is_some() {
+                you_heard_beat = None;
+                if local_act.for_us(t) >= 6_000_000 && local_on.env.len() > w {
+                    let lenv = &local_on.env[local_on.env.len() - w..];
+                    if let Some(p0) = estimate_period(lenv, hop_s, 70.0, 180.0) {
+                        let pl = refine_period(lenv, p0, 4);
+                        you_heard_beat = heard_beat(lenv, pl, t + frame_us - start);
+                    }
+                }
             }
         }
 
@@ -1019,6 +1066,12 @@ pub fn run_live(
                     / 1e3,
                 capture_underruns: capture.as_ref().map(|c| c.1.underruns).unwrap_or(0),
                 uptime_s: (t - start) as f64 / 1e6,
+                now_ms: (t + frame_us - start) as f64 / 1e3,
+                you_beat: match &deck {
+                    Some(d) => deck_beat(d, t + frame_us - start),
+                    None => you_heard_beat,
+                },
+                partner_beat,
                 events: events.clone(),
             };
             local_peak = 0.0;
@@ -1052,6 +1105,36 @@ pub fn run_live(
         std::fs::write(dir.join("report.json"), serde_json::to_string_pretty(&rep)?)?;
     }
     Ok(st)
+}
+
+/// Beats in an onset envelope (1 ms hops) that ends at output time `t_end_us`.
+fn heard_beat(env: &[f32], period_hops: f64, t_end_us: i64) -> Option<BeatClock> {
+    let ph = beat_phase(env, period_hops)?;
+    let hop_ms = HOP as f64 / SAMPLE_RATE as f64 * 1e3;
+    let t0_ms = t_end_us as f64 / 1e3 - env.len() as f64 * hop_ms;
+    Some(BeatClock {
+        period_ms: period_hops * hop_ms,
+        beat_ms: t0_ms + ph * hop_ms,
+        bar_ms: None,
+    })
+}
+
+/// The deck's beats from its own grid; bars counted from the track's first beat.
+fn deck_beat(d: &Deck, t_next_us: i64) -> Option<BeatClock> {
+    let g = d.grid?;
+    if !d.playing {
+        return None;
+    }
+    let dt = d.time_to_next_beat()?;
+    let period_ms = g.period / (d.pitch * SAMPLE_RATE as f64) * 1e3;
+    let beat_ms = t_next_us as f64 / 1e3 + dt * 1e3;
+    let ahead = d.pos + dt * d.pitch * SAMPLE_RATE as f64;
+    let n = ((ahead - g.offset) / g.period).round() as i64;
+    Some(BeatClock {
+        period_ms,
+        beat_ms,
+        bar_ms: Some(beat_ms - n.rem_euclid(4) as f64 * period_ms),
+    })
 }
 
 fn rstate_epoch(remote: &Mutex<Remote>) -> u32 {

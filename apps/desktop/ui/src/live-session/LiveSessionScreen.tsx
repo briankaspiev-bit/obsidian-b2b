@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { handoffCount, roleOf } from '../session/sessionReducer';
 import type { SessionState } from '../session/types';
 import { useEngine, useLinkState, useSessionState } from '../session/useSession';
+import { DeckView } from './DeckView';
+import { useDeckKeys } from './deckKeys';
 import { DiagnosticsDrawer } from './DiagnosticsDrawer';
 import { DjPanel } from './DjPanel';
 import { EndSessionControl } from './EndSessionControl';
@@ -82,6 +84,7 @@ export function LiveSessionScreen() {
   const session = useSessionState();
   const link = useLinkState();
   const [diagOpen, setDiagOpen] = useState(false);
+  const feed = useSyncExternalStore(engine.subscribeSession, engine.getDeckFeed);
 
   const local = session.djs[session.localId];
   const remote = session.djs[session.remoteId];
@@ -116,6 +119,16 @@ export function LiveSessionScreen() {
   const onAirSinceMs = session.ownerId === local.id ? (lastTake?.atMs ?? session.startedAtMs) : null;
   // You're live when you own the mix, or are receiving it mid-handoff.
   const localLive = live && (session.handoff ? session.handoff.to === local.id : session.ownerId === local.id);
+  const remoteLive = live && (session.handoff ? session.handoff.to === remote.id : session.ownerId === remote.id);
+  const canTakeOver = live && localRole !== 'onAir' && !session.handoff;
+
+  useDeckKeys({
+    enabled: live && feed !== null,
+    feed,
+    onAction: engine.deck,
+    onTakeOver: canTakeOver ? (emergency ? engine.emergencyTakeOver : engine.takeOver) : null,
+    onToggleReady: live && (localRole === 'cueing' || localRole === 'ready') ? (localRole === 'ready' ? engine.cancelReady : engine.markReady) : null,
+  });
 
   return (
     <div
@@ -124,12 +137,23 @@ export function LiveSessionScreen() {
       data-local-live={localLive || undefined}
       data-remote-ready={(live && remoteRole === 'ready') || undefined}
       data-emergency={emergency || undefined}
+      data-dj={feed ? true : undefined}
     >
       <div className="ls-live-frame" aria-hidden="true" />
       <SessionHeader />
 
       <main className="ls-stage">
         <SessionTimer startedAtMs={session.startedAtMs} endedAtMs={session.endedAtMs} />
+
+        {feed && live && (
+          <DeckView
+            feed={feed}
+            partnerName={remote.name || 'Them'}
+            partnerRole={remoteLive ? 'onAir' : 'cue'}
+            youRole={localLive ? 'onAir' : 'cue'}
+            onAction={engine.deck}
+          />
+        )}
 
         <div className="ls-booth">
           <DjPanel
@@ -204,7 +228,7 @@ export function LiveSessionScreen() {
               remoteCity={remote.city}
               remoteReady={remoteRole === 'ready'}
               handoffTo={session.handoff ? (session.handoff.to === local.id ? 'local' : 'remote') : null}
-              enabled={live && localRole !== 'onAir' && !session.handoff}
+              enabled={canTakeOver}
               emergency={emergency}
               onAirSinceMs={onAirSinceMs}
               onTakeOver={emergency ? engine.emergencyTakeOver : engine.takeOver}

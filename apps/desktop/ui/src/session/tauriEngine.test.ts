@@ -4,6 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bridge, EngineInfo, LinkStatus, LiveStatus, NetworkResult, RoomEvent, WireLevel } from './bridge';
+import type { ScopeChunk } from './deck';
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS } from './engine';
 import { roleOf } from './sessionReducer';
 import { TauriSessionEngine } from './tauriEngine';
@@ -15,6 +16,7 @@ type Handlers = {
   local?: (l: WireLevel) => void;
   remote?: (l: WireLevel) => void;
   live?: (s: LiveStatus) => void;
+  scope?: (c: ScopeChunk) => void;
 };
 
 const liveStatus = (onAir: boolean, partnerOnAir: boolean, ready = false, partnerReady = false, phase = 'live'): LiveStatus => ({
@@ -32,6 +34,14 @@ const liveStatus = (onAir: boolean, partnerOnAir: boolean, ready = false, partne
   local_peak: 0.5,
   partner_peak: 0.25,
   send_kbps: 900,
+  now_ms: 1000,
+  you_beat: null,
+  partner_beat: null,
+  partner_bpm: null,
+  deck: null,
+  fader: 1,
+  partner_volume: 1,
+  ghost_says: null,
 });
 
 const NET: NetworkResult = {
@@ -62,6 +72,7 @@ function fakeWorld() {
   };
   const make = () => {
     const h: Handlers = {};
+    const calls: string[] = [];
     let peer: Handlers | null = null;
     const ok = <T,>(v: T) => Promise.resolve(v);
     const b: Bridge = {
@@ -111,7 +122,16 @@ function fakeWorld() {
         publish();
         return ok(undefined);
       },
-      liveSetFader: () => ok(undefined),
+      liveSetFader: (v: number) => (calls.push(`fader ${v}`), ok(undefined)),
+      loadTrack: (f: File) => (calls.push(`load ${f.name}`), ok(`C:/cache/${f.name}`)),
+      startPractice: (name: string, track: string | null) => {
+        calls.push(`practice ${name} ${track}`);
+        onAir.set(h, false);
+        return ok({ partnerName: 'Ghost DJ', path: 'nyc-lon', track: track ?? 'Test groove B' });
+      },
+      deckCommand: (action: string, value?: number) => (calls.push(`deck ${action}${value === undefined ? '' : ` ${value}`}`), ok(undefined)),
+      ghostComeBack: () => (calls.push('ghost'), ok(undefined)),
+      deckWave: () => ok(new Uint8Array(30).buffer),
       liveSetPartnerVolume: () => ok(undefined),
       stopLive: () => {
         left.add(h);
@@ -131,8 +151,9 @@ function fakeWorld() {
       onLocalLevel: (f) => ((h.local = f), ok(() => {})),
       onRemoteLevel: (f) => ((h.remote = f), ok(() => {})),
       onLiveStatus: (f) => ((h.live = f), ok(() => {})),
+      onLiveScope: (f) => ((h.scope = f), ok(() => {})),
     };
-    return { b, h };
+    return { b, h, calls };
   };
   const hostLinks = new Map<Handlers, Handlers>();
   return { make };
@@ -249,5 +270,49 @@ describe('two desktop apps', () => {
 
     val.endSession();
     expect(dana.getSession().status).toBe('ended');
+  });
+
+  it('practice: the ghost opens on air, the DJ view gets its feed, the deck goes through the engine', async () => {
+    const world = fakeWorld();
+    const a = world.make();
+    const e = new TauriSessionEngine({ ...info, liveAudio: true }, a.b);
+    e.setLocalProfile({ name: 'Brian', city: 'New York' });
+    e.startPractice(new File([new Uint8Array(4)], 'My Track.mp3'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(a.calls).toEqual(['load My Track.mp3', 'practice Brian C:/cache/My Track.mp3']);
+    expect(e.getRoom().phase).toBe('live');
+    const s = e.getSession();
+    expect(s.djs.remote).toMatchObject({ name: 'Ghost DJ', city: 'London (simulated)' });
+    expect(roleOf(s, 'remote')).toBe('onAir');
+
+    const feed = e.getDeckFeed();
+    expect(feed).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(feed!.wave?.length).toBe(30);
+    a.h.scope?.({ first: 0, cols: [{ you: [1, 2, 3], partner: [200, 50, 10] }] });
+    expect(feed!.end).toBe(1);
+    expect(Array.from(feed!.partner.slice(0, 3))).toEqual([200, 50, 10]);
+    a.h.live?.({
+      ...liveStatus(false, true),
+      now_ms: 5000,
+      partner_beat: { period_ms: 480, beat_ms: 4800, bar_ms: null },
+      ghost_says: 'on air',
+      shield: true,
+    });
+    expect(feed!.info).toMatchObject({ nowMs: 5000, partnerOnAir: true, ghostSays: 'on air', shield: true, partnerShield: false });
+
+    e.deck({ kind: 'playPause' });
+    e.deck({ kind: 'nudge', ms: -10 });
+    e.deck({ kind: 'fader', value: 0.5 });
+    e.deck({ kind: 'ghostComeBack' });
+    expect(a.calls.slice(2)).toEqual(['deck playPause', 'deck nudge -10', 'fader 0.5', 'ghost']);
+
+    e.takeOver();
+    await vi.advanceTimersByTimeAsync(HANDOFF_DURATION_MS + 10);
+    expect(roleOf(e.getSession(), 'local')).toBe('onAir');
+    e.endSession();
+    expect(e.getSession().status).toBe('ended');
+    e.leaveRoom();
+    expect(e.getDeckFeed()).toBeNull();
   });
 });

@@ -3,7 +3,9 @@
 // Replace with an adapter over the engine's IPC API; the UI only depends on
 // the SessionEngine interface.
 
+import type { DeckAction } from './deck';
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS, type SessionEngine } from './engine';
+import { SimDeck } from './simDeck';
 import { initialRoom, normalizeCode, roomAfterRemoteReady, roomReducer, type RoomAction } from './roomReducer';
 import { sessionReducer, type SessionAction } from './sessionReducer';
 import { createListeners, type Listener } from './listeners';
@@ -125,6 +127,8 @@ export class MockSessionEngine implements SessionEngine {
   private timers: number[] = [];
   private handoffTimer: number | undefined;
   private dropoutTimers: number[] = [];
+  /** The DJ view's stand-in engine, while a set runs. */
+  private sim: SimDeck | null = null;
 
   constructor() {
     this.session = initialSession(Date.now());
@@ -192,7 +196,22 @@ export class MockSessionEngine implements SessionEngine {
     this.dropoutTimers.forEach((t) => window.clearTimeout(t));
     this.link = initialLink();
     this.linkListeners.emit();
+    this.stopSim();
     this.roomDispatch({ type: 'leave' });
+  };
+
+  startPractice = (_track: File | null) => {
+    if (this.room.phase !== 'home') return;
+    this.clearRoomTimers();
+    const s = initialSession(Date.now(), { midSet: false, localOnAir: false });
+    const ghost = s.djs[REMOTE_ID];
+    s.djs[REMOTE_ID] = { ...ghost, name: 'Ghost DJ', city: 'London (simulated)', photoUrl: undefined };
+    this.session = s;
+    this.link = initialLink();
+    this.sessionListeners.emit();
+    this.linkListeners.emit();
+    this.startSim('fading in over your track');
+    this.roomDispatch({ type: 'enterLive' });
   };
 
   // --- SessionEngine: during the session ------------------------------------
@@ -216,7 +235,11 @@ export class MockSessionEngine implements SessionEngine {
   endSession = () => {
     window.clearTimeout(this.handoffTimer);
     this.dispatch({ type: 'end', atMs: Date.now() });
+    this.stopSim();
   };
+
+  getDeckFeed = () => this.sim?.feed ?? null;
+  deck = (action: DeckAction) => this.sim?.act(action);
 
   // --- Mock-only controls (the remote DJ's side and failures) -------------
 
@@ -279,12 +302,27 @@ export class MockSessionEngine implements SessionEngine {
     this.restart();
   };
 
+  private startSim(ghostSays: string | null = null) {
+    this.sim?.stop();
+    this.sim = new SimDeck(
+      () => ({ you: this.session.ownerId === LOCAL_ID, partner: this.session.ownerId === REMOTE_ID }),
+      ghostSays,
+    );
+    this.sim.start();
+  }
+
+  private stopSim() {
+    this.sim?.stop();
+    this.sim = null;
+  }
+
   restart = () => {
     window.clearTimeout(this.handoffTimer);
     this.dropoutTimers.forEach((t) => window.clearTimeout(t));
     this.trackIndex = { [LOCAL_ID]: 0, [REMOTE_ID]: 0 };
     this.session = initialSession(Date.now());
     this.link = initialLink();
+    this.startSim();
     this.sessionListeners.emit();
     this.linkListeners.emit();
   };
@@ -294,6 +332,7 @@ export class MockSessionEngine implements SessionEngine {
     this.timers.forEach((t) => window.clearInterval(t));
     window.clearTimeout(this.handoffTimer);
     this.dropoutTimers.forEach((t) => window.clearTimeout(t));
+    this.stopSim();
   }
 
   // --- internals -----------------------------------------------------------
@@ -354,6 +393,7 @@ export class MockSessionEngine implements SessionEngine {
       this.session = initialSession(Date.now(), { midSet: false, localOnAir: this.room.isHost });
       this.trackIndex = { [LOCAL_ID]: 0, [REMOTE_ID]: 0 };
       this.link = initialLink();
+      this.startSim();
       this.sessionListeners.emit();
       this.linkListeners.emit();
       this.roomDispatch({ type: 'enterLive' });

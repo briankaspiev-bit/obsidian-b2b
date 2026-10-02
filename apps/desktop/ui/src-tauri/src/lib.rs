@@ -143,7 +143,8 @@ impl LinkSink for TauriSink {
 fn connect(app: &AppHandle, booth: &Booth, conn: Connection, code: &str) -> CmdResult<Paired> {
     let relay = conn.path == Path::Relay;
     let sock = conn.socket.try_clone().map_err(err)?;
-    let link = BoothLink::start(sock, conn.peer_addr, relay, TauriSink(app.clone())).map_err(err)?;
+    let link =
+        BoothLink::start(sock, conn.peer_addr, relay, TauriSink(app.clone())).map_err(err)?;
     let paired = Paired {
         code: format_code(code),
         peer_name: conn.peer_name.clone(),
@@ -157,7 +158,11 @@ fn connect(app: &AppHandle, booth: &Booth, conn: Connection, code: &str) -> CmdR
 
 #[tauri::command]
 fn engine_info() -> EngineInfo {
-    EngineInfo { version: env!("CARGO_PKG_VERSION"), room_server: room_server(), live_audio: true }
+    EngineInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        room_server: room_server(),
+        live_audio: true,
+    }
 }
 
 #[tauri::command]
@@ -189,8 +194,15 @@ fn select_output(id: String, booth: State<'_, Booth>) -> CmdResult<()> {
 
 /// Where a set's recordings go: Music\Obsidian\<time> (or the app's data folder).
 fn record_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
-    let base = app.path().audio_dir().or_else(|_| app.path().app_data_dir()).ok()?;
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    let base = app
+        .path()
+        .audio_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .ok()?;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
     Some(base.join("Obsidian").join(format!("set-{secs}")))
 }
 
@@ -198,7 +210,12 @@ fn record_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
 #[tauri::command]
 async fn start_live(start_on_air: bool, app: AppHandle) -> CmdResult<()> {
     let booth = app.state::<Booth>();
-    let capture = booth.capture.lock().map_err(err)?.take().ok_or("Pick what you send first.")?;
+    let capture = booth
+        .capture
+        .lock()
+        .map_err(err)?
+        .take()
+        .ok_or("Pick what you send first.")?;
     let (sock, peer) = {
         let conn = booth.conn.lock().map_err(err)?;
         let c = conn.as_ref().ok_or("Not connected to the other booth")?;
@@ -209,7 +226,7 @@ async fn start_live(start_on_air: bool, app: AppHandle) -> CmdResult<()> {
     }
     let setup = live::LiveSetup {
         name: booth.name.lock().map_err(err)?.clone(),
-        capture,
+        source: live::Source::Capture(capture),
         output_id: booth.output_id.lock().map_err(err)?.clone(),
         sock,
         peer,
@@ -250,13 +267,133 @@ fn live_set_partner_volume(value: f32, booth: State<'_, Booth>) -> CmdResult<()>
     with_live(&booth, |l| l.set_partner_volume(value))
 }
 
+/// The picked file's name (sent percent-encoded), reduced to a plain file name
+/// so it can't point outside the tracks folder.
+fn track_file_name(header: Option<&str>) -> String {
+    let raw = header.unwrap_or("");
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut it = raw.bytes();
+    while let Some(b) = it.next() {
+        if b == b'%' {
+            let hex: Vec<u8> = it.by_ref().take(2).collect();
+            if let Some(v) = std::str::from_utf8(&hex).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                bytes.push(v);
+                continue;
+            }
+        }
+        bytes.push(b);
+    }
+    let decoded = String::from_utf8_lossy(&bytes);
+    let name: String = decoded
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect();
+    let name = name.trim().trim_start_matches('.').to_string();
+    if name.is_empty() {
+        "track.mp3".into()
+    } else {
+        name
+    }
+}
+
+/// A music file picked in the app (the body is the file; `x-name` its name).
+/// Kept in the app's cache so the deck can open it; returns its path.
+#[tauri::command]
+fn load_track(request: tauri::ipc::Request<'_>, app: AppHandle) -> CmdResult<String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("No file came through".into());
+    };
+    let name = track_file_name(request.headers().get("x-name").and_then(|v| v.to_str().ok()));
+    let dir = app.path().app_cache_dir().map_err(err)?.join("tracks");
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).map_err(err)?;
+    Ok(path.display().to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Practice {
+    partner_name: &'static str,
+    path: &'static str,
+    track: String,
+}
+
+/// Practice alone: your deck against the ghost DJ over a simulated NYC to London link.
+#[tauri::command]
+async fn start_practice(
+    name: String,
+    track: Option<String>,
+    app: AppHandle,
+) -> CmdResult<Practice> {
+    let booth = app.state::<Booth>();
+    if let Ok(mut l) = booth.live.lock() {
+        *l = None;
+    }
+    let output_id = booth.output_id.lock().map_err(err)?.clone();
+    let (run, title) = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<_> {
+        let t = live::practice_track(track.as_deref().map(std::path::Path::new))?;
+        let title = t.0.clone();
+        Ok((live::LiveRun::practice(&name, t, output_id)?, title))
+    })
+    .await
+    .map_err(err)?
+    .map_err(|e| format!("Couldn't start practice: {e:#}"))?;
+    *booth.live.lock().map_err(err)? = Some(run);
+    Ok(Practice {
+        partner_name: "Ghost DJ",
+        path: live::PRACTICE_PATH,
+        track: title,
+    })
+}
+
+/// The built-in deck: play, cue, sync, nudge (ms, + is earlier) and pitch (%).
+#[tauri::command]
+fn deck_command(action: String, value: Option<f64>, booth: State<'_, Booth>) -> CmdResult<()> {
+    use obsidian_live::Cmd;
+    let c = match action.as_str() {
+        "playPause" => Cmd::DeckPlayPause,
+        "cue" => Cmd::DeckCue,
+        "sync" => Cmd::SyncToggle,
+        "nudge" => Cmd::Nudge(value.unwrap_or(0.0).clamp(-100.0, 100.0)),
+        "pitch" => Cmd::Pitch(value.unwrap_or(0.0).clamp(-8.0, 8.0)),
+        _ => return Err(format!("Unknown deck action {action}")),
+    };
+    with_live(&booth, |l| l.deck(c))
+}
+
+#[tauri::command]
+fn ghost_come_back(booth: State<'_, Booth>) -> CmdResult<()> {
+    with_live(&booth, |l| l.ghost_come_back())
+}
+
+/// The deck's whole track as low/mid/high bytes, 5 ms per column (empty without a deck).
+#[tauri::command]
+fn deck_wave(booth: State<'_, Booth>) -> CmdResult<tauri::ipc::Response> {
+    let wave = booth
+        .live
+        .lock()
+        .map_err(err)?
+        .as_ref()
+        .and_then(|l| l.deck_wave());
+    let bytes: Vec<u8> = wave
+        .map(|w| w.iter().flatten().copied().collect())
+        .unwrap_or_default();
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// Ends the set; returns the folder its recordings were written to.
 #[tauri::command]
 async fn stop_live(booth: State<'_, Booth>) -> CmdResult<Option<String>> {
     let run = booth.live.lock().map_err(err)?.take();
     let Some(run) = run else { return Ok(None) };
     let dir = run.record_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || run.stop()).await.map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || run.stop())
+        .await
+        .map_err(err)?;
     Ok(dir.map(|d| d.display().to_string()))
 }
 
@@ -284,7 +421,10 @@ async fn create_room(name: String, app: AppHandle) -> CmdResult<String> {
                 }
                 return;
             }
-            let event = match result.map_err(friendly).and_then(|c| connect(&app, &booth, c, &code)) {
+            let event = match result
+                .map_err(friendly)
+                .and_then(|c| connect(&app, &booth, c, &code))
+            {
                 Ok(p) => RoomEvent::Paired(p),
                 Err(message) => RoomEvent::Error { message },
             };
@@ -325,20 +465,35 @@ fn leave_room(booth: State<'_, Booth>) {
 #[tauri::command]
 fn send_control(json: String, booth: State<'_, Booth>) -> CmdResult<()> {
     let link = booth.link.lock().map_err(err)?;
-    link.as_ref().ok_or("Not connected to the other booth")?.send_control(json)
+    link.as_ref()
+        .ok_or("Not connected to the other booth")?
+        .send_control(json)
 }
 
 #[tauri::command]
-async fn run_network_test(seconds: f64, booth: State<'_, Booth>) -> CmdResult<nettest::NetworkResult> {
+async fn run_network_test(
+    seconds: f64,
+    booth: State<'_, Booth>,
+) -> CmdResult<nettest::NetworkResult> {
     let d = Duration::from_secs_f64(seconds.clamp(1.0, 30.0));
     let tester = {
         let link = booth.link.lock().map_err(err)?;
-        link.as_ref().ok_or("Not connected to the other booth")?.tester()
+        link.as_ref()
+            .ok_or("Not connected to the other booth")?
+            .tester()
     };
     tauri::async_runtime::spawn_blocking(move || tester.run(d))
         .await
         .map_err(err)?
         .ok_or_else(|| "The link closed during the test".to_string())
+}
+
+#[derive(Clone, Serialize)]
+struct LiveEvent {
+    #[serde(flatten)]
+    status: obsidian_live::LiveStatus,
+    /// Practice: what the ghost DJ is doing.
+    ghost_says: Option<String>,
 }
 
 /// Sends levels to the UI (and before the set, to the other booth), and
@@ -352,12 +507,23 @@ fn spawn_level_pump(app: AppHandle) {
                 thread::sleep(Duration::from_millis(33));
                 tick = tick.wrapping_add(1);
                 let booth = app.state::<Booth>();
-                if tick.is_multiple_of(2) {
-                    let status = booth.live.lock().ok().and_then(|l| l.as_ref().map(|l| l.status()));
-                    if let Some(st) = status {
-                        let _ = app.emit("live-status", st);
-                        continue;
+                let live = booth.live.lock().ok().and_then(|l| {
+                    l.as_ref().map(|l| {
+                        let st = tick.is_multiple_of(2).then(|| LiveEvent {
+                            status: l.status(),
+                            ghost_says: l.ghost_says(),
+                        });
+                        (st, l.scope_new())
+                    })
+                });
+                if let Some((st, scope)) = live {
+                    if !scope.cols.is_empty() {
+                        let _ = app.emit("live-scope", scope);
                     }
+                    if let Some(st) = st {
+                        let _ = app.emit("live-status", st);
+                    }
+                    continue;
                 }
                 let level = match booth.capture.lock() {
                     Ok(c) => c.as_ref().map(|c| c.level_dbfs()),
@@ -400,7 +566,27 @@ pub fn run() {
             live_set_fader,
             live_set_partner_volume,
             stop_live,
+            load_track,
+            start_practice,
+            deck_command,
+            ghost_come_back,
+            deck_wave,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Obsidian");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::track_file_name;
+
+    #[test]
+    fn picked_file_names_stay_plain_file_names() {
+        assert_eq!(track_file_name(Some("Caf%C3%A9%20Mix.mp3")), "Café Mix.mp3");
+        assert_eq!(track_file_name(Some("..%2F..%2Fevil.exe")), "evil.exe");
+        assert_eq!(track_file_name(Some("C%3A%5CUsers%5Cx%5Ca.wav")), "a.wav");
+        assert_eq!(track_file_name(Some("..")), "track.mp3");
+        assert_eq!(track_file_name(None), "track.mp3");
+        assert_eq!(track_file_name(Some("100%")), "100%");
+    }
 }

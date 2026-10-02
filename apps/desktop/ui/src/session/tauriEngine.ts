@@ -9,6 +9,7 @@
 // the recording, which wait for the engine's live mode.
 
 import { bridge as tauriBridge, type Bridge, type EngineInfo, type LinkStatus, type LiveStatus, type Unlisten, type WireLevel } from './bridge';
+import { DeckFeed, type DeckAction, type DeckInfo } from './deck';
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS, type SessionEngine } from './engine';
 import { createListeners, type Listener } from './listeners';
 import { evaluateCheck, initialRealLink, linkStateFrom, linkStateFromLive, parsePeerMessage, peakToDb, type PeerMessage } from './peer';
@@ -20,6 +21,8 @@ const LOCAL_ID = 'local';
 const REMOTE_ID = 'remote';
 const SILENT: StereoLevel = { left: -Infinity, right: -Infinity };
 const PROFILE_KEY = 'obsidian.profile';
+/** The simulated DJ's city in practice (the engine's ghost runs over an NYC to London link). */
+const GHOST_CITY = 'London (simulated)';
 /** Long enough to see a few hundred pings and some music on both meters. */
 const CHECK_SECONDS = 4;
 
@@ -46,6 +49,23 @@ function fromWire(l: WireLevel): StereoLevel {
 
 function messageOf(e: unknown): string {
   return typeof e === 'string' ? e : e instanceof Error ? e.message : 'Something went wrong.';
+}
+
+function deckInfo(st: LiveStatus): DeckInfo {
+  return {
+    nowMs: st.now_ms,
+    you: st.you_beat,
+    partner: st.partner_beat,
+    partnerBpm: st.partner_bpm,
+    deck: st.deck,
+    onAir: st.on_air,
+    partnerOnAir: st.partner_on_air,
+    fader: st.fader,
+    partnerVolume: st.partner_volume,
+    ghostSays: st.ghost_says,
+    shield: st.shield ?? false,
+    partnerShield: st.partner_shield ?? false,
+  };
 }
 
 function emptySession(now: number): SessionState {
@@ -91,6 +111,8 @@ export class TauriSessionEngine implements SessionEngine {
   private pendingHello: { name: string; city: string } | null = null;
   /** Bumped on leave so late answers from an old room are ignored. */
   private generation = 0;
+  /** The DJ view's data while the engine runs a set. */
+  private feed: DeckFeed | null = null;
 
   constructor(
     readonly info: EngineInfo,
@@ -119,6 +141,7 @@ export class TauriSessionEngine implements SessionEngine {
         this.localLevelListeners.emit();
       }),
       b.onLiveStatus((st) => this.onLiveStatus(st)),
+      b.onLiveScope((c) => this.feed?.push(c)),
       b.onRemoteLevel((l) => {
         this.remoteLevel = fromWire(l);
         if (this.peaks) this.peaks.remote = Math.max(this.peaks.remote, this.remoteLevel.left, this.remoteLevel.right);
@@ -246,6 +269,7 @@ export class TauriSessionEngine implements SessionEngine {
     this.clearTimers();
     this.peaks = null;
     this.pendingHello = null;
+    this.feed = null;
     this.roomDispatch({ type: 'leave' });
     void this.bridge.leaveRoom().catch(() => {});
     void this.bridge.stopInputMeter().catch(() => {});
@@ -255,6 +279,32 @@ export class TauriSessionEngine implements SessionEngine {
     this.linkListeners.emit();
     this.remoteLevelListeners.emit();
     this.localLevelListeners.emit();
+  };
+
+  startPractice = (file: File | null) => {
+    const r = this.room;
+    if (r.phase !== 'home' || r.creating || r.joining) return;
+    this.roomDispatch({ type: 'createStarted' });
+    const gen = this.generation;
+    const name = r.local.name.trim() || 'You';
+    (file ? this.bridge.loadTrack(file) : Promise.resolve(null))
+      .then((track) => this.bridge.startPractice(name, track))
+      .then(
+        (p) => {
+          if (gen !== this.generation) return;
+          const s = emptySession(Date.now());
+          s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name, city: r.local.city.trim() };
+          s.djs[REMOTE_ID] = { ...s.djs[REMOTE_ID], name: p.partnerName, city: GHOST_CITY };
+          // The ghost opens on air; you cue, SYNC and take over.
+          s.ownerId = REMOTE_ID;
+          this.session = s;
+          this.sessionListeners.emit();
+          this.engineLive = true;
+          this.startFeed();
+          this.roomDispatch({ type: 'enterLive' });
+        },
+        (e) => gen === this.generation && this.roomDispatch({ type: 'createFailed', error: messageOf(e) }),
+      );
   };
 
   // --- SessionEngine: during the session ------------------------------------
@@ -294,6 +344,30 @@ export class TauriSessionEngine implements SessionEngine {
     if (this.engineLive) {
       this.engineLive = false;
       void this.bridge.stopLive().catch(() => {});
+    }
+  };
+
+  getDeckFeed = () => this.feed;
+
+  deck = (a: DeckAction) => {
+    if (!this.engineLive) return;
+    const b = this.bridge;
+    const done = (p: Promise<unknown>) => void p.catch(() => {});
+    switch (a.kind) {
+      case 'playPause':
+      case 'cue':
+      case 'sync':
+        return done(b.deckCommand(a.kind));
+      case 'nudge':
+        return done(b.deckCommand('nudge', a.ms));
+      case 'pitch':
+        return done(b.deckCommand('pitch', a.pct));
+      case 'fader':
+        return done(b.liveSetFader(a.value));
+      case 'partnerVolume':
+        return done(b.liveSetPartnerVolume(a.value));
+      case 'ghostComeBack':
+        return done(b.ghostComeBack());
     }
   };
 
@@ -441,7 +515,9 @@ export class TauriSessionEngine implements SessionEngine {
     const gen = this.generation;
     this.bridge.startLive(startOnAir).then(
       () => {
-        if (gen === this.generation) this.engineLive = true;
+        if (gen !== this.generation) return;
+        this.engineLive = true;
+        this.startFeed();
       },
       (e) => {
         if (gen !== this.generation) return;
@@ -451,9 +527,29 @@ export class TauriSessionEngine implements SessionEngine {
     );
   }
 
+  /** A fresh DJ view feed, plus the deck's whole-track waveform once the engine has it. */
+  private startFeed() {
+    const feed = new DeckFeed();
+    this.feed = feed;
+    // The screen picks the feed up with the session.
+    this.sessionListeners.emit();
+    const fetchWave = (tries: number) => {
+      this.bridge.deckWave().then(
+        (buf) => {
+          if (this.feed !== feed) return;
+          if (buf.byteLength > 0) feed.setWave(new Uint8Array(buf));
+          else if (tries > 0) this.later(400, () => fetchWave(tries - 1));
+        },
+        () => {},
+      );
+    };
+    fetchWave(10);
+  }
+
   private onLiveStatus(st: LiveStatus) {
     if (!this.engineLive || this.room.phase !== 'live') return;
     const now = Date.now();
+    this.feed?.update(deckInfo(st), performance.now());
 
     const was = this.link.remote;
     this.link = linkStateFromLive(st, this.link);

@@ -7,7 +7,9 @@
 
 pub mod deck;
 pub mod ghost;
+pub mod scope;
 pub mod session;
 
 pub use ghost::{GhostPlan, GhostSession};
+pub use scope::{BeatClock, Column, ScopeChunk};
 pub use session::{run_live, BeatView, Cmd, LiveConfig, LiveControls, LiveSource, LiveStatus};
