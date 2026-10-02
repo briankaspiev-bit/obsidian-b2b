@@ -558,10 +558,8 @@ pub fn run_live(
                     if let Some(d) = &mut deck {
                         match c {
                             Cmd::DeckPlayPause => d.playing = !d.playing,
-                            Cmd::DeckCue => {
-                                d.playing = false;
-                                d.cue();
-                            }
+                            // Back to the first beat; keeps playing if it was.
+                            Cmd::DeckCue => d.cue(),
                             Cmd::SyncToggle => {
                                 d.sync = !d.sync;
                                 d.sync_locked = false;

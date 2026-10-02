@@ -87,15 +87,19 @@ safety buffer, rescued and patched-over packets, your fader and the partner's vo
 
 ## Keys
 
+Keys only work while the obsidian-live window is the one in front: click it once if
+nothing responds. The screen says why your track is silent (paused, fader down).
+
+
 | Key | Does |
 |---|---|
 | SPACE (or T) | Take over: you're on air |
 | R | Ready: tell your partner you're cued to take over |
 | ↑ / ↓ | Your fader (what your partner and the room get), 10% a press |
-| ← / → | Partner's volume in your headphones, 10% a press (silent once the ghost has faded out: G brings it back) |
+| ← / → | Partner's volume in your headphones, 10% a press (nothing to turn down once the ghost has faded out: G brings it back) |
 | P | Play / pause your deck |
 | S | SYNC on/off (follows whoever is on air while you're coming in) |
-| C | Cue: back to the first beat |
+| C | Back to the first beat (keeps playing if it was). Your track loops at the end. |
 | [ / ] | Jump one beat back / forward (line up the bars) |
 | , / . | Nudge the beat 10 ms back / forward |
 | - / = | Speed −/+ 0.1% |

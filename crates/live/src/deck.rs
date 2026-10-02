@@ -225,11 +225,12 @@ impl Deck {
 
     /// Back to the first beat of the track.
     pub fn cue(&mut self) {
+        let old = self.pos;
         self.pos = self
             .grid
             .map(|g| g.offset.rem_euclid(g.period))
             .unwrap_or(0.0);
-        self.xfade_from = None;
+        self.xfade_from = (self.playing && self.gain > 0.0).then_some((old, XFADE));
     }
 
     fn sample(&self, p: f64, ch: usize) -> f32 {
@@ -282,10 +283,25 @@ impl Deck {
                 self.pitch
             };
             self.pos += step;
-            if self.pos >= self.frames as f64 {
-                self.pos -= self.frames as f64;
+            // Loop by whole bars from the first beat, so the beat and bar stay where
+            // SYNC put them (a test track is only a minute long).
+            let (start, len) = self.loop_span();
+            if self.pos >= start + len {
+                self.pos -= len;
             }
         }
+    }
+
+    fn loop_span(&self) -> (f64, f64) {
+        let end = self.frames as f64 - 1.0;
+        if let Some(g) = self.grid {
+            let bar = 4.0 * g.period;
+            let bars = ((end - g.offset) / bar).floor();
+            if bars >= 1.0 {
+                return (g.offset, bars * bar);
+            }
+        }
+        (0.0, end)
     }
 
     /// Jump whole beats (negative = back), like a CDJ beat jump.
@@ -299,6 +315,10 @@ impl Deck {
     pub fn jump(&mut self, samples: f64) {
         let old = self.pos;
         self.pos = (self.pos + samples).rem_euclid(self.frames.max(1) as f64);
+        let (start, len) = self.loop_span();
+        if self.pos >= start + len {
+            self.pos -= len;
+        }
         if self.playing && self.gain > 0.0 {
             self.xfade_from = Some((old, XFADE));
         }
