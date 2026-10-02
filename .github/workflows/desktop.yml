@@ -3,9 +3,9 @@ name: desktop
 on:
   push:
     branches: [main]
-    paths: ["apps/desktop/**", "crates/protocol/**", "crates/clock/**", "services/rendezvous/**", ".github/workflows/desktop.yml"]
+    paths: ["apps/desktop/**", "crates/**", "Cargo.toml", "Cargo.lock", "services/rendezvous/**", ".github/workflows/desktop.yml"]
   pull_request:
-    paths: ["apps/desktop/**", "crates/protocol/**", "crates/clock/**", "services/rendezvous/**", ".github/workflows/desktop.yml"]
+    paths: ["apps/desktop/**", "crates/**", "Cargo.toml", "Cargo.lock", "services/rendezvous/**", ".github/workflows/desktop.yml"]
   workflow_dispatch:
 
 defaults:
