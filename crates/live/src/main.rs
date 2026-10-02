@@ -422,6 +422,7 @@ fn apply(ctl: &LiveControls, ghost: Option<&LiveControls>, c: &str) {
         "play" => ctl.send(Cmd::DeckPlayPause),
         "sync" => ctl.send(Cmd::SyncToggle),
         "cue" => ctl.send(Cmd::DeckCue),
+        "jump" => ctl.send(Cmd::BeatJump(1)),
         "ready" => ctl.send(Cmd::SetReady(true)),
         "comeback" => {
             if let Some(g) = ghost {
@@ -540,6 +541,8 @@ fn screen(
                         KeyCode::Char('s') => ctl.send(Cmd::SyncToggle),
                         KeyCode::Char('c') => ctl.send(Cmd::DeckCue),
                         KeyCode::Char('r') => ctl.send(Cmd::SetReady(!ctl.status().ready)),
+                        KeyCode::Char('[') => ctl.send(Cmd::BeatJump(-1)),
+                        KeyCode::Char(']') => ctl.send(Cmd::BeatJump(1)),
                         KeyCode::Char(',') => ctl.send(Cmd::Nudge(-10.0)),
                         KeyCode::Char('.') => ctl.send(Cmd::Nudge(10.0)),
                         KeyCode::Char('-') => ctl.send(Cmd::Pitch(-0.1)),
@@ -687,7 +690,7 @@ fn draw(
     );
     let mut keys = String::new();
     if st.deck.is_some() {
-        keys += " P play/pause  ·  S sync  ·  C cue  ·  , . nudge  ·  - = pitch";
+        keys += " P play/pause  ·  S sync  ·  C cue  ·  [ ] beat jump  ·  , . nudge  ·  - = pitch";
     }
     if solo {
         keys += "  ·  G ghost comes back";

@@ -85,6 +85,8 @@ pub enum Cmd {
     SyncToggle,
     /// Shift the deck's beat by this many ms (positive = earlier).
     Nudge(f64),
+    /// Jump the deck by whole beats (negative = back).
+    BeatJump(i32),
     /// Change the deck's speed by this many percent.
     Pitch(f64),
     /// Solo practice: bring the ghost DJ back in now.
@@ -435,6 +437,7 @@ pub fn run_live(
     let mut buf = Vec::with_capacity(2048);
     let mut local_on = OnsetTracker::new(HOP);
     let mut remote_on = OnsetTracker::new(HOP);
+    let mut remote_hf = crate::deck::HfTracker::default();
     let mut local_act = Activity::new();
     let mut remote_act = Activity::new();
     let mut seen_gen = 0u64;
@@ -495,6 +498,7 @@ pub fn run_live(
                                 next_sync = t;
                             }
                             Cmd::Nudge(ms) => d.nudge(ms, 0.25),
+                            Cmd::BeatJump(n) => d.beat_jump(n),
                             Cmd::Pitch(p) => d.pitch = (d.pitch + p / 100.0).clamp(0.85, 1.15),
                             _ => {}
                         }
@@ -694,6 +698,7 @@ pub fn run_live(
         // ---- beat tools ----
         local_on.push(&local);
         remote_on.push(&remote_out);
+        remote_hf.push(&remote_out);
         local_act.update(t, rms(&local) > 0.003);
         remote_act.update(t, rms(&remote_out) > 0.003);
         let end_idx = remote_on.env.len().min(local_on.env.len());
@@ -764,7 +769,8 @@ pub fn run_live(
                         .as_mut()
                         .filter(|d| d.sync && d.playing && !on_air && d.grid.is_some())
                     {
-                        sync_step(d, renv, pr, t + frame_us, &mut events, t, start);
+                        let hf = &remote_hf.env[remote_hf.env.len().saturating_sub(w)..];
+                        sync_step(d, renv, hf, pr, t + frame_us, &mut events, t, start);
                     }
                 }
             } else {
@@ -886,9 +892,57 @@ fn rstate_epoch(remote: &Mutex<Remote>) -> u32 {
 /// One SYNC correction: match the deck's tempo to the partner as heard, then pull
 /// its next beat onto the partner's beat grid. `renv` is the partner's onset
 /// envelope ending at output time `t_end`; `pr` its beat period in hops.
+/// Which shift (0-3 beats forward) of this deck's bar best matches the partner's
+/// bar pattern, given that the deck's next beat lands on partner beat `k` (counted
+/// from the beat at phase `ph` of `renv`). None when there is no clear winner.
+fn bar_shift(d: &Deck, renv: &[f32], pr: f64, ph: f64, k: f64) -> Option<i32> {
+    // `renv` here is the partner's high-band envelope over the same window.
+    let g = d.grid?;
+    let own = d.bar.as_ref()?;
+    let ph_own = g.period / HOP as f64; // own beat in file bins
+    let remote = crate::deck::fold(renv, ph, 4.0 * pr);
+    let dt = d.time_to_next_beat()?;
+    let q = d.pos + dt * d.pitch * SAMPLE_RATE as f64;
+    let b = ((q - g.offset) / g.period).round().rem_euclid(4.0);
+    let kr = k.rem_euclid(4.0);
+    let n = remote.len();
+    let corr = |s: f64| -> f64 {
+        let (mut xs, mut ys) = (Vec::with_capacity(n), Vec::with_capacity(n));
+        for tau in 0..n {
+            let xo = ((b + s) * ph_own + tau as f64 * d.pitch).rem_euclid(own.len() as f64)
+                as usize
+                % own.len();
+            let yr = ((kr * pr + tau as f64).rem_euclid(n as f64)) as usize % n;
+            xs.push(own[xo] as f64);
+            ys.push(remote[yr] as f64);
+        }
+        let mx = xs.iter().sum::<f64>() / n as f64;
+        let my = ys.iter().sum::<f64>() / n as f64;
+        let (mut sxy, mut sxx, mut syy) = (0.0, 0.0, 0.0);
+        for (x, y) in xs.iter().zip(&ys) {
+            sxy += (x - mx) * (y - my);
+            sxx += (x - mx).powi(2);
+            syy += (y - my).powi(2);
+        }
+        sxy / (sxx * syy).sqrt().max(1e-12)
+    };
+    let c: Vec<f64> = (0..4).map(|s| corr(s as f64)).collect();
+    let (best, &cb) = c
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())?;
+    // Only move when the winner is clearly better than staying put.
+    if best != 0 && cb - c[0] < 0.05 {
+        return Some(0);
+    }
+    Some(if best == 3 { -1 } else { best as i32 })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn sync_step(
     d: &mut Deck,
     renv: &[f32],
+    rhf: &[f32],
     pr: f64,
     t_end: i64,
     events: &mut Vec<String>,
@@ -944,11 +998,35 @@ fn sync_step(
         // First lock: jump straight onto the beat (with a short crossfade).
         d.jump(e_us / 1e6 * d.pitch * SAMPLE_RATE as f64);
         d.sync_locked = true;
+        d.bar_checks_left = 3;
+        // Beats line up now; also guess the bar, so claps and phrases line up too.
+        if (target - base).abs() < 1e-9 {
+            if let Some(s) = bar_shift(d, rhf, pr, ph, k) {
+                if s != 0 {
+                    d.beat_jump(s);
+                    say(
+                        events,
+                        format!("SYNC moved your track {s} beat(s) to line up the bars"),
+                    );
+                }
+            }
+        }
         say(
             events,
             format!("SYNC locked to partner at {:.1} BPM", 60.0 / pr_s),
         );
     } else if e_us.abs() > 1500.0 {
         d.nudge(e_us / 1e3, 0.8);
+    } else if d.bar_checks_left > 0 && (target - base).abs() < 1e-9 {
+        d.bar_checks_left -= 1;
+        if let Some(s) = bar_shift(d, rhf, pr, ph, k) {
+            if s != 0 {
+                d.beat_jump(s);
+                say(
+                    events,
+                    format!("SYNC moved your track {s} beat(s) to line up the bars"),
+                );
+            }
+        }
     }
 }
