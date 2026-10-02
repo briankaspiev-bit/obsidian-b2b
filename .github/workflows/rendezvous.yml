@@ -1,0 +1,60 @@
+name: rendezvous
+
+on:
+  push:
+    branches: [main]
+    paths: ["services/rendezvous/**", ".github/workflows/rendezvous.yml"]
+  pull_request:
+    paths: ["services/rendezvous/**", ".github/workflows/rendezvous.yml"]
+
+defaults:
+  run:
+    working-directory: services/rendezvous
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/rendezvous
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  nat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/rendezvous
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2
+      - run: cargo build --bins
+      - name: Simulated home routers
+        # cargo is on the runner user's PATH, not root's.
+        run: sudo env "PATH=$PATH" PROBE_SECONDS=3 nat/run-nat-tests.sh
+
+  windows-probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/rendezvous
+      - run: cargo build --release --bins
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-probe-windows
+          path: |
+            services/rendezvous/target/release/obsidian-probe.exe
+            services/rendezvous/target/release/rendezvous-server.exe
