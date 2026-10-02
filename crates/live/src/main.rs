@@ -347,6 +347,7 @@ fn apply(ctl: &LiveControls, ghost: Option<&LiveControls>, c: &str) {
         "play" => ctl.send(Cmd::DeckPlayPause),
         "sync" => ctl.send(Cmd::SyncToggle),
         "cue" => ctl.send(Cmd::DeckCue),
+        "ready" => ctl.send(Cmd::SetReady(true)),
         "comeback" => {
             if let Some(g) = ghost {
                 g.send(Cmd::GhostComeBack)
@@ -386,11 +387,13 @@ fn headless(
             next_line += 5.0;
             let d = st.deck.as_ref();
             println!(
-                "status  t={:>5.1} {:<22} on_air={} partner_on_air={} delay={} buffer={} align={:+.0} rec10={} patched10={} late={} bpm={} deck_bpm={} sync_err={} ghost={}",
+                "status  t={:>5.1} {:<22} on_air={} partner_on_air={} ready={} partner_ready={} delay={} buffer={} align={:+.0} rec10={} patched10={} late={} bpm={} deck_bpm={} sync_err={} ghost={}",
                 el,
                 st.phase,
                 st.on_air,
                 st.partner_on_air,
+                st.ready,
+                st.partner_ready,
                 fmt_ms(st.booth_delay_ms),
                 fmt_ms(st.margin_ms),
                 st.beat_align_ms,
@@ -460,6 +463,7 @@ fn screen(
                         KeyCode::Char('p') => ctl.send(Cmd::DeckPlayPause),
                         KeyCode::Char('s') => ctl.send(Cmd::SyncToggle),
                         KeyCode::Char('c') => ctl.send(Cmd::DeckCue),
+                        KeyCode::Char('r') => ctl.send(Cmd::SetReady(!ctl.status().ready)),
                         KeyCode::Char(',') => ctl.send(Cmd::Nudge(-10.0)),
                         KeyCode::Char('.') => ctl.send(Cmd::Nudge(10.0)),
                         KeyCode::Char('-') => ctl.send(Cmd::Pitch(-0.1)),
@@ -504,9 +508,15 @@ fn draw(
     let partner = st.partner_name.clone().unwrap_or_else(|| "Partner".into());
     let mm = |s: f64| format!("{:02}:{:02}", (s as u64) / 60, (s as u64) % 60);
     let air = if st.on_air {
-        "YOU ARE ON AIR".to_string()
+        if st.partner_ready {
+            format!("YOU ARE ON AIR · {partner} is READY to take over")
+        } else {
+            "YOU ARE ON AIR".to_string()
+        }
+    } else if st.partner_on_air && st.ready {
+        format!("{partner} is on air · you're READY (SPACE to take over)")
     } else if st.partner_on_air {
-        format!("{partner} is on air (you're coming in: SPACE to take over)")
+        format!("{partner} is on air (you're coming in: R = ready, SPACE = take over)")
     } else {
         "Nobody is on air yet (SPACE to take the air)".to_string()
     };
@@ -577,7 +587,8 @@ fn draw(
         lines.push(format!("   {e}"));
     }
     lines.push(String::new());
-    let mut keys = " SPACE take over  ·  ↑↓ your fader  ·  ←→ partner volume  ·  ".to_string();
+    let mut keys =
+        " SPACE take over  ·  R ready  ·  ↑↓ your fader  ·  ←→ partner volume  ·  ".to_string();
     if st.deck.is_some() {
         keys += "P play/pause  ·  S sync  ·  C cue  ·  , . nudge  ·  - = pitch  ·  ";
     }

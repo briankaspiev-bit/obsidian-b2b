@@ -89,6 +89,9 @@ pub enum Cmd {
     Pitch(f64),
     /// Solo practice: bring the ghost DJ back in now.
     GhostComeBack,
+    /// Coming in: cued and ready to take over (shown on the partner's screen).
+    /// Cleared automatically on TAKE OVER.
+    SetReady(bool),
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -99,6 +102,8 @@ pub struct LiveStatus {
     pub partner_addr: Option<String>,
     pub on_air: bool,
     pub partner_on_air: bool,
+    pub ready: bool,
+    pub partner_ready: bool,
     /// How late the partner reaches your ears: one-way network + buffer (ms, clock-sync estimate).
     pub booth_delay_ms: Option<f64>,
     pub rtt_ms: Option<f64>,
@@ -186,6 +191,7 @@ struct Remote {
     addr: Option<SocketAddr>,
     last_packet_us: Option<i64>,
     state: Option<(u32, bool, u32, String)>,
+    partner_ready: bool,
     left: bool,
 }
 
@@ -258,6 +264,7 @@ pub fn run_live(
         addr: cfg.peer,
         last_packet_us: None,
         state: None,
+        partner_ready: false,
         left: false,
     }));
     let sync = Arc::new(Mutex::new(ClockSync::new(64)));
@@ -328,9 +335,11 @@ pub fn run_live(
                         Packet::State {
                             epoch,
                             on_air,
+                            ready,
                             tiebreak,
                             name,
                         } => {
+                            r.partner_ready = ready;
                             r.state = Some((epoch, on_air, tiebreak, name));
                         }
                         Packet::Bye => {
@@ -406,6 +415,7 @@ pub fn run_live(
     let mut on_air = cfg.start_on_air;
     let mut epoch: u32 = on_air as u32;
     let mut state_burst = 3u32;
+    let mut ready = false;
     let mut events: Vec<String> = Vec::new();
     let start = clock.now_us() + 20_000;
     let ev = |events: &mut Vec<String>, t: i64, s: String| {
@@ -459,6 +469,12 @@ pub fn run_live(
         for c in std::mem::take(&mut *ctl.cmds.lock().unwrap()) {
             match c {
                 Cmd::TakeOver => take_over_now = true,
+                Cmd::SetReady(v) => {
+                    if ready != v {
+                        ready = v;
+                        state_burst = 3;
+                    }
+                }
                 Cmd::GhostComeBack => {
                     if let Some(g) = &mut ghost {
                         g.come_back = true;
@@ -499,7 +515,7 @@ pub fn run_live(
         }
         local_peak = local_peak.max(peak(&local));
 
-        let (peer, gen, rstate, left, last_pkt) = {
+        let (peer, gen, rstate, left, last_pkt, partner_ready) = {
             let r = remote.lock().unwrap();
             (
                 r.addr,
@@ -507,6 +523,7 @@ pub fn run_live(
                 r.state.clone(),
                 r.left,
                 r.last_packet_us,
+                r.partner_ready,
             )
         };
         if let Some(peer) = peer {
@@ -591,6 +608,7 @@ pub fn run_live(
         if take_over_now && !on_air {
             epoch = epoch.max(rstate_epoch(&remote)) + 1;
             on_air = true;
+            ready = false;
             state_burst = 3;
             next_beat_check = Some(t + 2_000_000);
             ev(&mut events, t, "You took over: you're on air".into());
@@ -600,6 +618,7 @@ pub fn run_live(
                 Packet::State {
                     epoch,
                     on_air,
+                    ready,
                     tiebreak,
                     name: cfg.name.clone(),
                 }
@@ -792,6 +811,8 @@ pub fn run_live(
                 partner_addr: peer.map(|p| p.to_string()),
                 on_air,
                 partner_on_air,
+                ready,
+                partner_ready: partner_ready && !partner_on_air,
                 booth_delay_ms: delay,
                 rtt_ms: rtt.map(|v| v as f64 / 1e3),
                 margin_ms: playing_gen.map(|_| r.pb.margin_us() / 1e3),
