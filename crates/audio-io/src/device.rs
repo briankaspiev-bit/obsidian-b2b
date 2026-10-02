@@ -24,6 +24,35 @@ pub fn list_devices() -> Result<DeviceList> {
     })
 }
 
+fn is_display(name: &str) -> bool {
+    let n = name.to_lowercase();
+    [
+        "display audio",
+        "hdmi",
+        "displayport",
+        "nvidia high definition",
+        "amd high definition",
+    ]
+    .iter()
+    .any(|k| n.contains(k))
+}
+
+/// The system default, unless that is a monitor's HDMI/DisplayPort audio (a common
+/// Windows default on laptops plugged into a screen): then the first other output,
+/// which is usually the laptop's own speakers / headphone jack.
+fn default_output(host: &cpal::Host) -> Result<cpal::Device> {
+    let def = host
+        .default_output_device()
+        .context("no default output device")?;
+    if !is_display(&def.to_string()) {
+        return Ok(def);
+    }
+    Ok(host
+        .output_devices()?
+        .find(|d| !is_display(&d.to_string()))
+        .unwrap_or(def))
+}
+
 fn find(devs: impl Iterator<Item = cpal::Device>, name: &str) -> Option<cpal::Device> {
     let want = name.to_lowercase();
     devs.into_iter()
@@ -72,9 +101,7 @@ pub fn start_output(
     let device = match name {
         Some(n) => find(host.output_devices()?, n)
             .ok_or_else(|| anyhow!("no output device matching \"{n}\""))?,
-        None => host
-            .default_output_device()
-            .context("no default output device")?,
+        None => default_output(&host)?,
     };
     let cfg = device
         .default_output_config()

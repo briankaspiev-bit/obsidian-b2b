@@ -481,9 +481,13 @@ fn screen(
                     }
                 }
             }
+            let mut st = ctl.status();
+            if let Some(g) = ghost {
+                st.ghost = g.status().ghost;
+            }
             draw(
                 &mut out,
-                &ctl.status(),
+                &st,
                 title,
                 out_name,
                 capture_mode,
@@ -587,16 +591,19 @@ fn draw(
         lines.push(format!("   {e}"));
     }
     lines.push(String::new());
-    let mut keys =
-        " SPACE take over  ·  R ready  ·  ↑↓ your fader  ·  ←→ partner volume  ·  ".to_string();
+    lines.push(
+        " SPACE take over  ·  R ready  ·  ↑↓ your fader  ·  ←→ partner volume  ·  Q quit".into(),
+    );
+    let mut keys = String::new();
     if st.deck.is_some() {
-        keys += "P play/pause  ·  S sync  ·  C cue  ·  , . nudge  ·  - = pitch  ·  ";
+        keys += " P play/pause  ·  S sync  ·  C cue  ·  , . nudge  ·  - = pitch";
     }
     if solo {
-        keys += "G ghost comes back  ·  ";
+        keys += "  ·  G ghost comes back";
     }
-    keys += "Q quit";
-    lines.push(keys);
+    if !keys.is_empty() {
+        lines.push(keys);
+    }
     let (w, _) = terminal::size().unwrap_or((120, 40));
     queue!(out, cursor::MoveTo(0, 0))?;
     for l in lines {
