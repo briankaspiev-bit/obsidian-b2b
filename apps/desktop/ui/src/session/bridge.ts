@@ -54,6 +54,10 @@ export interface LiveStatus {
   partner_name: string | null;
   on_air: boolean;
   partner_on_air: boolean;
+  /** Our READY (cleared by TAKE OVER). */
+  ready: boolean;
+  /** The partner's READY, only while they are off air. */
+  partner_ready: boolean;
   booth_delay_ms: number | null;
   rtt_ms: number | null;
   margin_ms: number | null;
@@ -86,6 +90,7 @@ export const bridge = {
   /** The countdown is over: the engine takes the connection, your input and headphones. */
   startLive: (startOnAir: boolean) => invoke<void>('start_live', { startOnAir }),
   liveTakeOver: () => invoke<void>('live_take_over'),
+  liveSetReady: (ready: boolean) => invoke<void>('live_set_ready', { ready }),
   liveSetFader: (value: number) => invoke<void>('live_set_fader', { value }),
   liveSetPartnerVolume: (value: number) => invoke<void>('live_set_partner_volume', { value }),
   /** Ends the set; resolves with the folder its recordings went to. */

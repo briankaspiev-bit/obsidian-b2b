@@ -18,6 +18,7 @@ Rust side (`src-tauri/src/lib.rs`) only through these. Types are in
 | `select_output` | `id` | headphones for the set |
 | `start_live` | `startOnAir` | the engine's live session takes the socket, the metered input and the headphones |
 | `live_take_over` | | TAKE OVER, through the engine |
+| `live_set_ready` | `ready` | READY while cueing; TAKE OVER clears it |
 | `live_set_fader` / `live_set_partner_volume` | `value` (0–1 / 0–2) | |
 | `stop_live` | | ends the set; the folder its recordings went to |
 | `run_network_test` | `seconds` | `{ pingsSent, pongsReceived, lossPct, rttMs, rttMinMs, jitterMs, clockOffsetMs, reached }` |

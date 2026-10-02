@@ -44,7 +44,7 @@ OBSIDIAN_SERVER=127.0.0.1:3478 npx tauri dev                     # then a second
 | The other DJ's meter | yes: their mixer's level, sent over the link | |
 | Hearing the other DJ, sending yours, recording | yes: at the end of the countdown the engine's live session (`crates/live`) takes the connection, your input and headphones; recordings go to Music\\Obsidian | |
 | TAKE OVER, emergency take over | yes, through the engine (its `State` packet) | |
-| The other DJ's READY during the set | no: shows on your screen only | a ready flag in the engine's `State` |
+| READY during the set | yes, through the engine (`State` ready flag); the other DJ ending the set ends it here too | |
 | "Everything this laptop plays" as your send | yes, Windows 10 2004+ (system audio minus Obsidian itself) | |
 
 See `BRIDGE.md` for the commands, events and peer messages.

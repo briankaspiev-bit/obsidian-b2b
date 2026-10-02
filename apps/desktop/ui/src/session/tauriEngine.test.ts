@@ -17,11 +17,13 @@ type Handlers = {
   live?: (s: LiveStatus) => void;
 };
 
-const liveStatus = (onAir: boolean, partnerOnAir: boolean): LiveStatus => ({
-  phase: 'live',
+const liveStatus = (onAir: boolean, partnerOnAir: boolean, ready = false, partnerReady = false, phase = 'live'): LiveStatus => ({
+  phase,
   partner_name: null,
   on_air: onAir,
   partner_on_air: partnerOnAir,
+  ready,
+  partner_ready: partnerReady,
   booth_delay_ms: 80,
   rtt_ms: 150,
   margin_ms: 20,
@@ -46,12 +48,16 @@ const NET: NetworkResult = {
 /** A pretend room server, booth link and live engine connecting two fake bridges. */
 function fakeWorld() {
   const rooms = new Map<string, { host: Handlers; hostName: string }>();
-  // The live engine's view: who is on air, per side.
+  // The live engine's view: who is on air and who is ready, per side.
   const onAir = new Map<Handlers, boolean>();
+  const ready = new Map<Handlers, boolean>();
+  const left = new Set<Handlers>();
   const publish = () => {
     for (const [h, mine] of onAir) {
-      const other = [...onAir].find(([k]) => k !== h)?.[1] ?? false;
-      h.live?.(liveStatus(mine, other));
+      const o = [...onAir.keys()].find((k) => k !== h);
+      const other = o ? onAir.get(o)! : false;
+      const otherReady = o ? (ready.get(o) ?? false) && !other : false;
+      h.live?.(liveStatus(mine, other, ready.get(h) ?? false, otherReady, o && left.has(o) ? 'partner left' : 'live'));
     }
   };
   const make = () => {
@@ -96,12 +102,23 @@ function fakeWorld() {
       },
       liveTakeOver: () => {
         for (const k of onAir.keys()) onAir.set(k, k === h);
+        ready.set(h, false); // TAKE OVER clears READY
+        publish();
+        return ok(undefined);
+      },
+      liveSetReady: (r: boolean) => {
+        ready.set(h, r);
         publish();
         return ok(undefined);
       },
       liveSetFader: () => ok(undefined),
       liveSetPartnerVolume: () => ok(undefined),
-      stopLive: () => ok('C:/Music/Obsidian/set-1'),
+      stopLive: () => {
+        left.add(h);
+        onAir.delete(h);
+        publish();
+        return ok('C:/Music/Obsidian/set-1');
+      },
       runNetworkTest: () => {
         // Both mixers play during the check.
         h.local?.({ left: -9, right: -10 });
@@ -220,10 +237,17 @@ describe('two desktop apps', () => {
     expect(roleOf(dana.getSession(), 'remote')).toBe('onAir');
     expect(dana.getLink().diagnostics.bufferMs).toBe(20);
     expect(dana.getRemoteLevel().left).toBeCloseTo(-12.04, 1);
+    dana.markReady();
+    expect(roleOf(val.getSession(), 'remote')).toBe('ready');
+    expect(roleOf(dana.getSession(), 'local')).toBe('ready');
     dana.takeOver();
     expect(roleOf(val.getSession(), 'local')).toBe('handoff');
     await vi.advanceTimersByTimeAsync(HANDOFF_DURATION_MS + 10);
     expect(roleOf(val.getSession(), 'remote')).toBe('onAir');
     expect(roleOf(dana.getSession(), 'local')).toBe('onAir');
+    expect(dana.getSession().readyIds).toEqual([]);
+
+    val.endSession();
+    expect(dana.getSession().status).toBe('ended');
   });
 });

@@ -63,6 +63,11 @@ impl LiveRun {
         self.ctl.send(Cmd::TakeOver);
     }
 
+    /// READY while cueing; the partner sees it, TAKE OVER clears it.
+    pub fn set_ready(&self, ready: bool) {
+        self.ctl.send(Cmd::SetReady(ready));
+    }
+
     pub fn set_fader(&self, v: f32) {
         self.ctl.set_fader(v);
     }

@@ -236,6 +236,11 @@ fn live_take_over(booth: State<'_, Booth>) -> CmdResult<()> {
 }
 
 #[tauri::command]
+fn live_set_ready(ready: bool, booth: State<'_, Booth>) -> CmdResult<()> {
+    with_live(&booth, |l| l.set_ready(ready))
+}
+
+#[tauri::command]
 fn live_set_fader(value: f32, booth: State<'_, Booth>) -> CmdResult<()> {
     with_live(&booth, |l| l.set_fader(value))
 }
@@ -391,6 +396,7 @@ pub fn run() {
             run_network_test,
             start_live,
             live_take_over,
+            live_set_ready,
             live_set_fader,
             live_set_partner_volume,
             stop_live,

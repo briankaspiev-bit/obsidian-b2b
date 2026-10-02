@@ -268,8 +268,14 @@ export class TauriSessionEngine implements SessionEngine {
   getLocalLevel = () => this.localLevel;
   subscribeLocalLevel = (l: Listener) => this.localLevelListeners.add(l);
 
-  markReady = () => this.localMove({ type: 'markReady', djId: LOCAL_ID, atMs: Date.now() }, { t: 'markReady' });
-  cancelReady = () => this.localMove({ type: 'cancelReady', djId: LOCAL_ID, atMs: Date.now() }, { t: 'cancelReady' });
+  markReady = () => {
+    if (this.engineLive) return void this.bridge.liveSetReady(true).catch(() => {});
+    this.localMove({ type: 'markReady', djId: LOCAL_ID, atMs: Date.now() }, { t: 'markReady' });
+  };
+  cancelReady = () => {
+    if (this.engineLive) return void this.bridge.liveSetReady(false).catch(() => {});
+    this.localMove({ type: 'cancelReady', djId: LOCAL_ID, atMs: Date.now() }, { t: 'cancelReady' });
+  };
   takeOver = () => {
     // With live audio the engine owns the mix: the screen follows its status.
     if (this.engineLive) return void this.bridge.liveTakeOver().catch(() => {});
@@ -461,6 +467,22 @@ export class TauriSessionEngine implements SessionEngine {
     this.remoteLevel = { left: remote, right: remote };
     this.localLevelListeners.emit();
     this.remoteLevelListeners.emit();
+
+    // The other DJ ended the set (their app said goodbye): end it here too.
+    if (st.phase === 'partner left' && this.session.status === 'live') {
+      this.endSession();
+      return;
+    }
+
+    // READY flags ride the engine's State packet.
+    for (const [djId, on] of [
+      [LOCAL_ID, st.ready],
+      [REMOTE_ID, st.partner_ready],
+    ] as const) {
+      const shown = this.session.readyIds.includes(djId);
+      if (on && !shown) this.dispatch({ type: 'markReady', djId, atMs: now });
+      if (!on && shown && !this.session.handoff) this.dispatch({ type: 'cancelReady', djId, atMs: now });
+    }
 
     // Who owns the mix is the engine's call; the screen catches up.
     const owner = st.on_air ? LOCAL_ID : st.partner_on_air ? REMOTE_ID : null;
