@@ -5,7 +5,7 @@
 //!   obsidian-live join --peer 203.0.113.7:9000 --system
 //!   obsidian-live devices
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::{cursor, execute, queue, style, terminal};
@@ -13,8 +13,9 @@ use obsidian_audio_io::{device, file, sim::SimDevice, AudioFifo};
 use obsidian_live::{
     run_live, Cmd, GhostPlan, GhostSession, LiveConfig, LiveControls, LiveSource, LiveStatus,
 };
+use obsidian_rendezvous as rendezvous;
 use std::io::Write;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -50,19 +51,32 @@ enum Command {
     Host {
         #[command(flatten)]
         audio: AudioArgs,
-        /// UDP port to listen on. Forward it on your router if your partner can't reach you.
-        #[arg(long, default_value_t = 9000)]
-        port: u16,
+        /// Skip the room code: listen on this UDP port and let the partner join by IP
+        /// (forward the port on your router).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Room-code server (default: Obsidian's, or OBSIDIAN_SERVER).
+        #[arg(long)]
+        server: Option<String>,
+        /// Always go through the server's relay instead of straight to the partner.
+        #[arg(long)]
+        relay: bool,
     },
-    /// Connect to a partner who is hosting.
+    /// Connect to a partner who is hosting: give the room code they read out.
     Join {
         #[command(flatten)]
         audio: AudioArgs,
-        /// Partner's address, e.g. 203.0.113.7:9000.
+        /// The room code, e.g. ABCD-2345.
+        code: Option<String>,
+        /// Or the partner's address, e.g. 203.0.113.7:9000 (if they host with --port).
         #[arg(long)]
-        peer: SocketAddr,
+        peer: Option<SocketAddr>,
         #[arg(long, default_value_t = 9000)]
         port: u16,
+        #[arg(long)]
+        server: Option<String>,
+        #[arg(long)]
+        relay: bool,
     },
     /// List sound cards.
     Devices,
@@ -183,7 +197,11 @@ fn main() -> Result<()> {
             ghost.stop()?;
             r
         }
-        Command::Host { audio, port } => {
+        Command::Host {
+            audio,
+            port: Some(port),
+            ..
+        } => {
             let sock = UdpSocket::bind(("0.0.0.0", port))
                 .with_context(|| format!("UDP port {port} is busy"))?;
             let title = format!(
@@ -191,13 +209,88 @@ fn main() -> Result<()> {
             );
             session(audio, sock, None, title, None)
         }
-        Command::Join { audio, peer, port } => {
+        Command::Host {
+            audio,
+            port: None,
+            server,
+            relay,
+        } => {
+            let cfg = room_config(server.as_deref(), relay)?;
+            let room = rendezvous::client::create_room(&cfg, &audio.name)
+                .map_err(|e| anyhow!("Couldn't create a room: {e}"))?;
+            println!();
+            println!(
+                "  ROOM CODE:  {}",
+                rendezvous::proto::format_code(room.code())
+            );
+            println!();
+            println!(
+                "  Tell your partner to run:  .\\obsidian-live.exe join {}",
+                rendezvous::proto::format_code(room.code())
+            );
+            println!("  Waiting for them to join (up to 30 minutes, Ctrl+C to stop)...");
+            let link = room
+                .wait_for_guest(Duration::from_secs(30 * 60))
+                .map_err(|e| anyhow!("Nobody joined: {e}"))?;
+            linked(audio, link)
+        }
+        Command::Join {
+            audio,
+            code: None,
+            peer: Some(peer),
+            port,
+            ..
+        } => {
             let sock =
                 UdpSocket::bind(("0.0.0.0", port)).or_else(|_| UdpSocket::bind("0.0.0.0:0"))?;
             let title = format!("joined {peer}");
             session(audio, sock, Some(peer), title, None)
         }
+        Command::Join {
+            audio,
+            code: Some(code),
+            server,
+            relay,
+            ..
+        } => {
+            let cfg = room_config(server.as_deref(), relay)?;
+            println!("Joining room {} ...", rendezvous::proto::format_code(&code));
+            let link = rendezvous::client::join_room(&cfg, &code, &audio.name)
+                .map_err(|e| anyhow!("Couldn't join room {code}: {e}"))?;
+            linked(audio, link)
+        }
+        Command::Join { .. } => bail!("give the room code: obsidian-live join ABCD-2345"),
     }
+}
+
+/// The room-code server everyone uses unless told otherwise.
+const DEFAULT_SERVER: &str = "204.48.26.46:3478";
+
+fn room_config(server: Option<&str>, relay: bool) -> Result<rendezvous::client::ClientConfig> {
+    let env = std::env::var("OBSIDIAN_SERVER").ok();
+    let name = server.or(env.as_deref()).unwrap_or(DEFAULT_SERVER);
+    let addr = name
+        .to_socket_addrs()
+        .with_context(|| format!("can't find the room server {name}"))?
+        .find(|a| a.is_ipv4())
+        .with_context(|| format!("can't find the room server {name}"))?;
+    let mut cfg = rendezvous::client::ClientConfig::new(addr);
+    cfg.force_relay = relay;
+    Ok(cfg)
+}
+
+/// Run the session on the socket the room handed us, then free the room.
+fn linked(audio: AudioArgs, link: rendezvous::client::Connection) -> Result<()> {
+    let how = match link.path {
+        rendezvous::client::Path::Direct => "direct",
+        rendezvous::client::Path::Relay => "through the relay",
+    };
+    println!("Connected to {} ({how})", link.peer_name);
+    let title = format!("with {} · connected {how}", link.peer_name);
+    let sock = link.socket.try_clone()?;
+    let res = session(audio, sock, Some(link.peer_addr), title, None);
+    link.leave();
+    res
 }
 
 fn tone(output: Option<&str>, output_channel: usize, seconds: f64) -> Result<()> {
