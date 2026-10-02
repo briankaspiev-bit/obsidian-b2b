@@ -6,6 +6,7 @@ Early stage. What is here today:
 
 | Path | What it is |
 |---|---|
+| `apps/web/` | Marketing landing page with early-access waitlist (static HTML/CSS/JS). See its README. |
 | `apps/desktop/ui/` | Desktop app UI (React + TypeScript + Vite): Home, Booth Check and Live Session screens, running on a mock engine. See its README. |
 | `notes/` | Implementation notes. |
 | `previews/` | Self-contained HTML build of the UI preview. |

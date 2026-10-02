@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Obsidian B2B</title>
+    <meta name="description" content="The online place where DJs play together. Go back-to-back with a DJ in another city using the decks and software you already own." />
+    <meta property="og:title" content="Obsidian B2B" />
+    <meta property="og:description" content="The online place where DJs play together." />
+    <meta name="theme-color" content="#0a0a0d" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="wrap nav__inner">
+        <a class="brand" href="#top" aria-label="Obsidian B2B home">
+          <svg class="brand__mark" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="8.5" cy="12" r="6.5" fill="none" stroke="#ff6a3d" stroke-width="2" />
+            <circle cx="15.5" cy="12" r="6.5" fill="none" stroke="#6cc4ff" stroke-width="2" />
+          </svg>
+          <span>OBSIDIAN</span><span class="brand__b2b">B2B</span>
+        </a>
+        <nav class="nav__links" aria-label="Main">
+          <a href="#how">How it works</a>
+          <a href="#modes">Modes</a>
+          <a class="btn btn--primary btn--sm" href="#waitlist">Get early access</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="wrap hero__grid">
+          <div>
+            <p class="eyebrow">Remote back-to-back DJing</p>
+            <h1 class="hero__title">The online place where DJs <em>play together.</em></h1>
+            <p class="hero__lede">
+              Go B2B with a DJ in another city on the decks and software you already own. Obsidian connects your
+              mixer to theirs, keeps the handoff tight, and lets a crowd watch it happen live.
+            </p>
+            <div class="hero__cta">
+              <a class="btn btn--primary" href="#waitlist">Get early access</a>
+              <a class="btn btn--ghost" href="#how">See how it works</a>
+            </div>
+          </div>
+
+          <figure class="booth" aria-label="Example live booth: Brian K in New York and Maya in London playing back-to-back" style="margin: 0">
+            <div class="booth__bar">
+              <span class="live-pill">LIVE</span>
+              <span>BOOTH · DEEP HOUSE · <span id="bpm">124</span> BPM</span>
+              <span id="timer" class="mono">00:41:07</span>
+            </div>
+            <div class="booth__decks">
+              <div class="deck" id="deck-a" data-role="air">
+                <span class="deck__role" id="role-a">ON AIR</span>
+                <span class="deck__name">Brian K</span>
+                <span class="deck__meta">New York · rekordbox · DDJ-FLX10</span>
+              </div>
+              <div class="link-col" aria-hidden="true">
+                <span>NYC ⇄ LDN</span>
+                <span class="link-col__ms" id="ms">38 ms</span>
+                <span>one way</span>
+              </div>
+              <div class="deck deck--right" id="deck-b" data-role="cue">
+                <span class="deck__role" id="role-b">CUEING NEXT</span>
+                <span class="deck__name">Maya</span>
+                <span class="deck__meta">London · Serato · CDJ-3000s</span>
+              </div>
+            </div>
+            <canvas id="wave" aria-hidden="true"></canvas>
+            <div class="booth__stats">
+              <div class="stat"><span class="stat__k">Connection</span><span class="stat__v">Excellent</span></div>
+              <div class="stat"><span class="stat__k">Booth sync</span><span class="stat__v">Stable</span></div>
+              <div class="stat"><span class="stat__k">Watching</span><span class="stat__v stat__v--cue mono" id="watching">1,842</span></div>
+            </div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="gear" aria-label="Works with your setup">
+        <div class="wrap gear__inner">
+          <span class="eyebrow">Keep your setup</span>
+          <ul class="gear__list">
+            <li>rekordbox</li>
+            <li>Serato</li>
+            <li>Engine DJ</li>
+            <li>Traktor</li>
+            <li>CDJs</li>
+            <li>Controllers</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="how">
+        <div class="wrap">
+          <div class="section__head">
+            <p class="eyebrow">How it works</p>
+            <h2 class="section__title">From invite code to first transition in a few minutes.</h2>
+            <p class="section__lede">
+              Obsidian is not another DJ app. It sits between your mixer and the internet and stays out of the way
+              while you play.
+            </p>
+          </div>
+          <ol class="steps">
+            <li class="step">
+              <span class="step__n">01</span>
+              <div class="step__body">
+                <h3 class="step__title">Open a booth</h3>
+                <p class="step__text">Create a private room and send the invite code to the DJ you want to play with.</p>
+              </div>
+              <span class="step__ui">INVITE · K7QX-M2PD</span>
+            </li>
+            <li class="step">
+              <span class="step__n">02</span>
+              <div class="step__body">
+                <h3 class="step__title">Plug in your mixer</h3>
+                <p class="step__text">Pick the audio input your mixer feeds. Your DJ software and hardware stay exactly as they are.</p>
+              </div>
+              <span class="step__ui">INPUT · MIXER REC OUT</span>
+            </li>
+            <li class="step">
+              <span class="step__n">03</span>
+              <div class="step__body">
+                <h3 class="step__title">Run the booth check</h3>
+                <p class="step__text">Obsidian tests both connections and both signals, then tells you in plain words if you are good to go.</p>
+              </div>
+              <span class="step__ui">CONNECTION · EXCELLENT</span>
+            </li>
+            <li class="step">
+              <span class="step__n">04</span>
+              <div class="step__body">
+                <h3 class="step__title">Go back-to-back</h3>
+                <p class="step__text">One DJ is on air, the other cues in their headphones. When it's your turn, take over and the mix moves to your side.</p>
+              </div>
+              <span class="step__ui">TAKE OVER</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section" style="padding-top: 0">
+        <div class="wrap">
+          <div class="truth">
+            <p class="truth__quote">Internet delay is real. <span>We measure it and build the handoff around it.</span></p>
+            <ul class="truth__list">
+              <li><b>One DJ owns the mix at a time.</b><span>The DJ on air plays to the room. The other DJ hears them and lines up the next track, like sharing a booth.</span></li>
+              <li><b>Handoffs land on the beat.</b><span>The take over is timed to the delay between you, so the crowd hears one clean transition.</span></li>
+              <li><b>Diagnostics when you want them.</b><span>Most of the time you see Connection, Booth Sync and Remote DJ. The raw numbers are one click away.</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="modes" style="padding-top: 0">
+        <div class="wrap">
+          <div class="section__head">
+            <p class="eyebrow">Three ways to play</p>
+            <h2 class="section__title">Practice with a friend. Play to a crowd. Get matched with a stranger.</h2>
+          </div>
+          <div class="modes">
+            <article class="mode mode--practice">
+              <div class="mode__tag"><span>PRACTICE</span><span class="mode__when">First</span></div>
+              <h3 class="mode__title">Private room</h3>
+              <p class="mode__text">Two friends, no audience. Rehearse transitions, learn each other's style, or just play for fun.</p>
+              <div class="mode__card">
+                <b>Booth</b> private · 2 DJs<br />
+                <b>Audience</b> none<br />
+                <b>Recording</b> optional master mix
+              </div>
+            </article>
+            <article class="mode mode--live">
+              <div class="mode__tag"><span>LIVE</span><span class="mode__when">Next</span></div>
+              <h3 class="mode__title">Public booth</h3>
+              <p class="mode__text">Go live with cameras, chat and reactions. Viewers see who's on the mix, the BPM and every handoff.</p>
+              <div class="mode__card">
+                <b>JAX × MARCUS</b><br />
+                New York ⇄ Berlin · Deep House<br />
+                🔥 ❤ ID? DROP · <b>1,842</b> watching
+              </div>
+            </article>
+            <article class="mode mode--open">
+              <div class="mode__tag"><span>OPEN DECKS</span><span class="mode__when">Later</span></div>
+              <h3 class="mode__title">Matchmaking</h3>
+              <p class="mode__text">Mark yourself available and get paired with a DJ who fits your genre, tempo and connection.</p>
+              <div class="mode__card match">
+                <div class="match__row"><span>MATCH FOUND</span><b>ARIA · LA</b></div>
+                <div class="match__row"><span>Tech House</span><b>124–128 BPM</b></div>
+                <div class="match__row"><span>Compatibility</span><b>92%</b></div>
+                <div class="match__row"><span>Latency</span><b>Excellent</b></div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="waitlist" style="padding-top: 0">
+        <div class="wrap waitlist">
+          <div class="section__head" style="margin-bottom: 0">
+            <p class="eyebrow">Early access</p>
+            <h2 class="section__title">Be in the first booths.</h2>
+            <p class="section__lede">
+              We're starting with private two-DJ sessions on Windows and Mac. Join the list and we'll invite DJs in
+              waves. Listeners and promoters are welcome too: tell us what you'd want to watch.
+            </p>
+          </div>
+
+          <form class="form" id="waitlist-form" novalidate>
+            <div class="form__row">
+              <div class="field">
+                <label for="wl-name">DJ name</label>
+                <input id="wl-name" name="name" autocomplete="nickname" placeholder="Brian K" />
+              </div>
+              <div class="field">
+                <label for="wl-city">City</label>
+                <input id="wl-city" name="city" autocomplete="address-level2" placeholder="New York" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="wl-email">Email</label>
+              <input id="wl-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required aria-describedby="wl-error" />
+            </div>
+            <fieldset class="field">
+              <legend>I want to</legend>
+              <div class="choice">
+                <input type="radio" id="wl-role-dj" name="role" value="dj" checked /><label for="wl-role-dj">Play B2B</label>
+                <input type="radio" id="wl-role-watch" name="role" value="listener" /><label for="wl-role-watch">Watch sets</label>
+                <input type="radio" id="wl-role-host" name="role" value="promoter" /><label for="wl-role-host">Host events</label>
+              </div>
+            </fieldset>
+            <div class="field">
+              <label for="wl-setup">Your setup</label>
+              <select id="wl-setup" name="setup">
+                <option value="">Choose one</option>
+                <option>rekordbox</option>
+                <option>Serato</option>
+                <option>Engine DJ</option>
+                <option>Traktor</option>
+                <option>CDJs + mixer</option>
+                <option>No gear yet</option>
+              </select>
+            </div>
+            <p class="form__error" id="wl-error" hidden>Enter an email address like name@example.com.</p>
+            <button class="btn btn--primary" type="submit">Join the waitlist</button>
+            <p class="form__note">We'll only email you about early access. Unsubscribe any time.</p>
+          </form>
+
+          <div class="done" id="waitlist-done" hidden>
+            <p class="eyebrow" style="color: var(--ok)">You're on the list</p>
+            <h3 class="done__title" id="done-title">See you in the booth.</h3>
+            <p>We'll email you when the first private booths open.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer__inner">
+        <span>© 2026 Obsidian B2B</span>
+        <span>Built for DJs, by DJs.</span>
+      </div>
+    </footer>
+
+    <script src="main.js"></script>
+  </body>
+</html>
