@@ -61,6 +61,10 @@ The bench's follower (`--follow`) simulates a perfect DJ: it listens to the lead
 
 Each peer writes the remote stream exactly as it played it to the monitor (`monitor.wav`) on the same sample clock as its own program (`sent.wav`): output blocks run on the same device clock as capture, and `report.json` gives `monitor_offset_samples`, the ISO sample that monitor sample 0 lines up with. `obsidian-bench` turns two reports into the merge tool's `session.json` (A = session-clock reference; B's `clock_ppm` is A's measured drift of B; `monitor_roundtrip_ms` is 0 until real devices and Booth Check exist).
 
+## Live build
+
+`obsidian-live` (`crates/live`, `crates/audio-io`) runs this engine on real sound cards with TAKE OVER, a fader, a SYNC deck and a solo-practice ghost DJ. See `docs/live.md`.
+
 ## Next: a Windows build two people can try over the internet
 
 Goal: Brian and a friend each run one app on a Windows laptop, connect with a short code, play any audio (a music file or whatever the laptop is playing), hand off, and judge how it feels.
