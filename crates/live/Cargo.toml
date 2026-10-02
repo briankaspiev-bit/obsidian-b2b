@@ -25,3 +25,4 @@ hound.workspace = true
 rand.workspace = true
 clap.workspace = true
 crossterm = "0.28"
+obsidian-rendezvous = { path = "../../services/rendezvous" }

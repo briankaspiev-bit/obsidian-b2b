@@ -57,22 +57,26 @@ your own tracks. `--system` sends whatever Windows is playing instead of the dec
 
 ## Two laptops over the internet
 
-Until connect-by-code lands, one side hosts and the other joins by IP address.
+One of you hosts and reads out a room code; the other joins with it. No IP addresses,
+no router settings: the room server finds a direct path between the laptops, or relays
+the audio when a router won't allow one.
 
-**Host** (the one whose router you can configure):
+**Host**:
 
 ```
 .\obsidian-live.exe host --name Brian --music "C:\Music\track.mp3"
 ```
 
-It listens on UDP port 9000. Find your public IP (search "what is my IP"). If your
-partner can't reach you, forward **UDP 9000** on your router to this laptop.
+It prints a code like `FT5V-PACM` and waits.
 
-**Join**:
+**Join** (the code works with or without the dash, in any case):
 
 ```
-.\obsidian-live.exe join --peer 203.0.113.7:9000 --name Dana --system
+.\obsidian-live.exe join FT5V-PACM --name Dana --system
 ```
+
+When it connects, both screens say who joined and whether the path is direct or
+through the relay. `--relay` forces the relay (if the direct path misbehaves).
 
 `--system` sends whatever the laptop is playing (rekordbox, Serato, Spotify...), except
 this app's own sound, so your partner never echoes back. Play your music as usual.
@@ -81,6 +85,9 @@ controller's own sound card. If your partner hears nothing from you, route the m
 record out into an audio interface and use `--input "<its name>"` (names come from
 `devices`). To hear your partner in a controller's headphone jack, try
 `--output "<controller name>" --output-channel 3` (channels 3/4).
+
+Without the room server: `host --port 9000` listens on UDP 9000 (forward it on your
+router) and the partner runs `join --peer <host's public IP>:9000`.
 
 Both sides see the same screen: who is on air, how late the partner reaches you, the
 safety buffer, rescued and patched-over packets, your fader and the partner's volume.
@@ -121,4 +128,3 @@ and `report.json`. Send both sides' folders to build the combined master with
   In a simulated bad-Wi-Fi link this cut audible patches from about 150 to about 13 per two
   minutes. Ethernet is still best: no shield, less delay.
 * No encryption yet; fine for two friends, not for strangers.
-* Joining by IP needs a reachable host; the room-code service will remove that step.
