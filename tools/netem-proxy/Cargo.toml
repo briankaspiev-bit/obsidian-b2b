@@ -1,0 +1,23 @@
+[package]
+name = "obsidian-netem-proxy"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "UDP impairment proxy (delay, jitter, bursty loss, Wi-Fi stalls, route changes) between two peers. Works on Linux, macOS and Windows, no root."
+
+[[bin]]
+name = "obsidian-netem"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
+obsidian-clock.workspace = true
+
+[lib]
+name = "obsidian_netem_proxy"
+path = "src/lib.rs"

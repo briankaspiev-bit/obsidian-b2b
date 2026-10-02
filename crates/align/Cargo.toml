@@ -1,0 +1,6 @@
+[package]
+name = "obsidian-align"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Onset envelopes, tempo and beat-phase estimation, beat-quantized monitoring delay."

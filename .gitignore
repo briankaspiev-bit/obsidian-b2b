@@ -6,3 +6,4 @@ dist-preview/
 .DS_Store
 .env
 .env.*
+/bench-out/

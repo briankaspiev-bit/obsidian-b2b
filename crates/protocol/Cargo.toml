@@ -1,0 +1,6 @@
+[package]
+name = "obsidian-protocol"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Wire format for the Obsidian booth engine (media + control packets over UDP)."
