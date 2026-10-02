@@ -37,10 +37,20 @@ fn is_display(name: &str) -> bool {
     .any(|k| n.contains(k))
 }
 
-/// The system default, unless that is a monitor's HDMI/DisplayPort audio (a common
+/// A headphone output if there is one; else the system default, unless that is a
+/// monitor's HDMI/DisplayPort audio (a common
 /// Windows default on laptops plugged into a screen): then the first other output,
 /// which is usually the laptop's own speakers / headphone jack.
 fn default_output(host: &cpal::Host) -> Result<cpal::Device> {
+    // A headphone endpoint wins: on many laptops (Realtek, e.g. MSI) the headphone
+    // jack is its own "2nd output" device and the default "Speakers" stays silent
+    // when headphones are plugged in.
+    if let Some(d) = host.output_devices()?.find(|d| {
+        let n = d.to_string().to_lowercase();
+        n.contains("headphone") || n.contains("2nd output")
+    }) {
+        return Ok(d);
+    }
     let def = host
         .default_output_device()
         .context("no default output device")?;
