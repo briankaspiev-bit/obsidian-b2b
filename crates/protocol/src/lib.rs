@@ -85,6 +85,8 @@ pub enum Packet {
     State {
         epoch: u32,
         on_air: bool,
+        /// The DJ coming in is cued and ready to take over (shown on the other screen).
+        ready: bool,
         tiebreak: u32,
         name: String,
     },
@@ -195,12 +197,13 @@ impl Packet {
             Packet::State {
                 epoch,
                 on_air,
+                ready,
                 tiebreak,
                 name,
             } => {
                 out.push(KIND_STATE);
                 out.extend_from_slice(&epoch.to_be_bytes());
-                out.push(*on_air as u8);
+                out.push(*on_air as u8 | (*ready as u8) << 1);
                 out.extend_from_slice(&tiebreak.to_be_bytes());
                 let n = &name.as_bytes()[..name.len().min(64)];
                 out.push(n.len() as u8);
@@ -252,13 +255,14 @@ impl Packet {
             KIND_BYE => Ok(Packet::Bye),
             KIND_STATE => {
                 let epoch = r.u32()?;
-                let on_air = r.u8()? != 0;
+                let flags = r.u8()?;
                 let tiebreak = r.u32()?;
                 let n = r.u8()? as usize;
                 let name = String::from_utf8_lossy(r.take(n)?).into_owned();
                 Ok(Packet::State {
                     epoch,
-                    on_air,
+                    on_air: flags & 1 != 0,
+                    ready: flags & 2 != 0,
                     tiebreak,
                     name,
                 })
@@ -309,7 +313,8 @@ mod tests {
             Packet::Bye,
             Packet::State {
                 epoch: 3,
-                on_air: true,
+                on_air: false,
+                ready: true,
                 tiebreak: 99,
                 name: "Brian".into(),
             },

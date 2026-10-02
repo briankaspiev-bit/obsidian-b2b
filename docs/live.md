@@ -80,6 +80,7 @@ safety buffer, rescued and patched-over packets, your fader and the partner's vo
 | Key | Does |
 |---|---|
 | SPACE (or T) | Take over: you're on air |
+| R | Ready: tell your partner you're cued to take over |
 | ↑ / ↓ | Your fader (what your partner and the room get) |
 | ← / → | Partner's volume in your headphones |
 | P | Play / pause your deck |
