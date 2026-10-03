@@ -1,0 +1,78 @@
+name: robot-dj
+
+# A Robot DJ joins your room from a GitHub server, plays a set with you, and
+# reports how your sound reached it. Click "Create room" in the app, then run
+# this workflow with the code (Actions → robot-dj → Run workflow). The robot
+# needs a few minutes to start; stay in Booth Check, then press I'M READY once
+# it shows up. The room code is good for 15 minutes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      code:
+        description: Room code from Create room (e.g. K7QX-M2PD)
+        required: true
+      minutes:
+        description: How long to play the set (1 to 30)
+        default: "8"
+      cue_seconds:
+        description: How long the robot waits off air before taking over
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: robot-dj
+  cancel-in-progress: false
+
+jobs:
+  robot:
+    name: Robot DJ
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/desktop/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/ui/package-lock.json
+      - name: Tauri's Linux libraries
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libasound2-dev librsvg2-dev libayatana-appindicator3-dev ffmpeg
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/robot
+      # The app's screens are compiled into the shared library the robot uses.
+      - run: npm ci && npm run build
+      - name: Build the robot
+        working-directory: apps/desktop/robot
+        run: cargo build --release
+      - name: Play the set
+        working-directory: apps/desktop/robot
+        env:
+          OBSIDIAN_SERVER: ${{ vars.OBSIDIAN_SERVER }}
+          CODE: ${{ inputs.code }}
+          MINUTES: ${{ inputs.minutes }}
+          CUE: ${{ inputs.cue_seconds }}
+        run: |
+          ./target/release/robot_dj --code "$CODE" --minutes "$MINUTES" --cue-seconds "$CUE" --out "$GITHUB_WORKSPACE/robot-out"
+      - name: Report
+        if: always()
+        working-directory: ${{ github.workspace }}/robot-out
+        run: |
+          [ -f summary.md ] && cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          # What reached the robot from you, lossless and small enough to download.
+          [ -f monitor.wav ] && ffmpeg -loglevel error -i monitor.wav -c:a flac -sample_fmt s16 your-sound-as-received.flac && rm monitor.wav
+          [ -f sent.wav ] && ffmpeg -loglevel error -i sent.wav -c:a flac -sample_fmt s16 robot-sent.flac && rm sent.wav
+          ls -la
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: robot-dj-report
+          path: robot-out/
+          if-no-files-found: ignore

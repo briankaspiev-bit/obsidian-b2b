@@ -1,0 +1,23 @@
+[package]
+name = "robot_dj"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Robot DJ: joins an Obsidian room as the other DJ, with no sound card, and reports on the set."
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+# The desktop app's own booth link, devices and live set, so the robot speaks
+# exactly the room protocol the app does.
+obsidian-desktop = { path = "../ui/src-tauri" }
+obsidian-live = { path = "../../../crates/live" }
+obsidian-rendezvous = { path = "../../../services/rendezvous" }
+
+# Two live audio engines run side by side in the test; optimize the libraries so
+# a debug build keeps up in real time.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Builds on its own, like the app: kept out of the app bundle and the engine workspace.
+[workspace]
