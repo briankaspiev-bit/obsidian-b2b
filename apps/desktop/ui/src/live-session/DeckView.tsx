@@ -278,9 +278,25 @@ function DeckButton({ label, keyHint, onClick, active, title }: { label: ReactNo
   );
 }
 
-function Slider({ label, value, max, onChange, keys }: { label: string; value: number; max: number; onChange: (v: number) => void; keys: string }) {
+function Slider({
+  label,
+  value,
+  max,
+  onChange,
+  keys,
+  disabled,
+  title,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  onChange: (v: number) => void;
+  keys: string;
+  disabled?: boolean;
+  title?: string;
+}) {
   return (
-    <label className="deck__slider">
+    <label className="deck__slider" title={title}>
       <span className="deck__slider-label">
         {label} <Key k={keys} />
       </span>
@@ -290,6 +306,7 @@ function Slider({ label, value, max, onChange, keys }: { label: string; value: n
         max={max}
         step={0.01}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
         onPointerUp={(e) => e.currentTarget.blur()}
       />
@@ -384,7 +401,15 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
         )}
         <div className="deck__group deck__group--sliders">
           <Slider label="YOUR FADER" keys="↑↓" value={info?.fader ?? 1} max={1} onChange={(value) => onAction({ kind: 'fader', value })} />
-          <Slider label={`${partnerName.toUpperCase()} IN YOUR EARS`} keys="←→" value={info?.partnerVolume ?? 1} max={2} onChange={(value) => onAction({ kind: 'partnerVolume', value })} />
+          <Slider
+            label={`${partnerName.toUpperCase()} IN THE MIX`}
+            keys="←→"
+            value={info?.partnerVolume ?? 1}
+            max={2}
+            onChange={(value) => onAction({ kind: 'partnerVolume', value })}
+            disabled={!info?.onAir}
+            title={info?.onAir ? `Blend ${partnerName}'s song in or out` : `${partnerName} is on air, so they set the blend. Take over to set it yourself.`}
+          />
         </div>
         {info?.ghostSays && (
           <div className="deck__group">

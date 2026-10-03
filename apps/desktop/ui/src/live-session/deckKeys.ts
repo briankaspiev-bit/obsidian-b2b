@@ -13,7 +13,7 @@ interface Options {
 /**
  * The same keys as the practice tool in the terminal: SPACE take over,
  * R ready, P play, C cue, S sync, , . nudge (Shift for bigger), - = pitch,
- * ↑↓ your fader, ←→ them in your ears, G bring the ghost back.
+ * ↑↓ your fader, ←→ the other DJ in the mix (on air only), G bring the ghost back.
  */
 export function useDeckKeys(o: Options) {
   const opts = useRef(o);
@@ -75,10 +75,14 @@ export function useDeckKeys(o: Options) {
           act = { kind: 'fader', value: step(info?.fader ?? 1, -0.05, 1) };
           break;
         case 'ArrowRight':
-          act = { kind: 'partnerVolume', value: step(info?.partnerVolume ?? 1, 0.05, 2) };
+          // Only the DJ on air sets the blend.
+          if (!info?.onAir) return;
+          act = { kind: 'partnerVolume', value: step(info.partnerVolume, 0.05, 2) };
           break;
         case 'ArrowLeft':
-          act = { kind: 'partnerVolume', value: step(info?.partnerVolume ?? 1, -0.05, 2) };
+          // Only the DJ on air sets the blend.
+          if (!info?.onAir) return;
+          act = { kind: 'partnerVolume', value: step(info.partnerVolume, -0.05, 2) };
           break;
         case 'g':
         case 'G':

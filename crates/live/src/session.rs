@@ -589,6 +589,7 @@ pub fn run_live(
     let mut seen_reanchors = 0usize;
     let mut partner_name: Option<String> = None;
     let mut partner_on_air = false;
+    let mut was_on_air = on_air;
     let mut last_status = 0i64;
     let mut local_peak = 0f32;
     let mut remote_peak = 0f32;
@@ -601,7 +602,6 @@ pub fn run_live(
         sleep_until(clock.instant_at(t));
         j += 1;
         let fader = ctl.fader();
-        let pvol = ctl.partner_volume();
         let mut take_over_now = false;
 
         // ---- commands ----
@@ -768,6 +768,20 @@ pub fn run_live(
                 next_state = t + 250_000;
             }
         }
+
+        // ---- handoff levels ----
+        // A shared mixer: the DJ on air sets the blend (how loud the partner's
+        // song is). Every handoff brings both songs back to full, so whoever takes
+        // over is never left muted by an earlier blend.
+        if on_air != was_on_air {
+            was_on_air = on_air;
+            ctl.set_partner_volume(1.0);
+            if on_air {
+                ctl.set_fader(1.0);
+            }
+        }
+        // Off air, the on-air song stays at full: only its DJ can turn it down.
+        let pvol = if on_air { ctl.partner_volume() } else { 1.0 };
 
         // ---- partner's 5 ms ----
         if gen != seen_gen {

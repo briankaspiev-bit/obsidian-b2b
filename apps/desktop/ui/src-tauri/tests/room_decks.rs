@@ -63,11 +63,17 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
     ca.autoplay = true;
     let mut cb = LiveConfig::new("Julio", room_deck(1));
     cb.peer = Some(aa);
-    let (ha, hb) = (Arc::new(AudioFifo::new(48_000 * 10)), Arc::new(AudioFifo::new(48_000 * 10)));
+    let (ha, hb) = (
+        Arc::new(AudioFifo::new(48_000 * 10)),
+        Arc::new(AudioFifo::new(48_000 * 10)),
+    );
     ca.sink = Some(ha.clone());
     cb.sink = Some(hb.clone());
 
-    let (a, b) = (Arc::new(LiveControls::default()), Arc::new(LiveControls::default()));
+    let (a, b) = (
+        Arc::new(LiveControls::default()),
+        Arc::new(LiveControls::default()),
+    );
     let (a2, b2) = (a.clone(), b.clone());
     let ja = thread::spawn(move || run_live(ca, sa, a2));
     let jb = thread::spawn(move || run_live(cb, sb, b2));
@@ -97,7 +103,10 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
     let st = wait_for(&b, 15, |s| s.on_air);
     assert!(st.on_air, "Julio took over: {st:?}");
     let st = wait_for(&a, 15, |s| !s.on_air && s.partner_on_air);
-    assert!(!st.on_air && st.partner_on_air, "Glizzy handed over: {st:?}");
+    assert!(
+        !st.on_air && st.partner_on_air,
+        "Glizzy handed over: {st:?}"
+    );
 
     // Live test, 2026-10-03: after taking over, Julio heard nothing. Now the new
     // on-air DJ hears his own deck, and each fader/slider moves its own side.
@@ -113,17 +122,78 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
         "after takeover: Julio own {julio_own:.3} all {julio_all:.3} none {julio_none:.4}; \
          Glizzy own {glizzy_own:.3} hears Julio {glizzy_julio:.3}"
     );
-    assert!(julio_own > 0.05, "Julio hears his own deck on air: {julio_own:.3}");
-    assert!(julio_none < 0.01, "both sliders down is silence: {julio_none:.4}");
-    assert!(glizzy_own > 0.05, "Glizzy hears his own deck while cueing: {glizzy_own:.3}");
-    assert!(glizzy_julio > 0.05, "Glizzy hears Julio on air: {glizzy_julio:.3}");
+    assert!(
+        julio_own > 0.05,
+        "Julio hears his own deck on air: {julio_own:.3}"
+    );
+    assert!(
+        julio_none < 0.01,
+        "both sliders down is silence: {julio_none:.4}"
+    );
+    assert!(
+        glizzy_own > 0.05,
+        "Glizzy hears his own deck while cueing: {glizzy_own:.3}"
+    );
+    assert!(
+        glizzy_julio > 0.05,
+        "Glizzy hears Julio on air: {glizzy_julio:.3}"
+    );
     // Both waveforms keep moving on each screen (yours is drawn after your fader).
     a.set_fader(1.0);
     thread::sleep(Duration::from_secs(1));
     let a_cols = a.scope_since(0);
     let recent = &a_cols.cols[a_cols.cols.len().saturating_sub(100)..];
-    assert!(recent.iter().any(|c| c.you[0] > 30), "Glizzy's own waveform still draws");
-    assert!(recent.iter().any(|c| c.partner[0] > 30), "Julio's waveform draws on Glizzy's screen");
+    assert!(
+        recent.iter().any(|c| c.you[0] > 30),
+        "Glizzy's own waveform still draws"
+    );
+    assert!(
+        recent.iter().any(|c| c.partner[0] > 30),
+        "Julio's waveform draws on Glizzy's screen"
+    );
+
+    // Robot DJ set, 2026-10-03: Brian blended the robot's song out while on air,
+    // and on its next turn it was still down. Now it's a shared mixer: the DJ on
+    // air sets the blend, and every handoff brings both songs back to full.
+    b.set_partner_volume(0.0); // Julio, on air, blends Glizzy's song out
+    a.set_partner_volume(0.0); // Glizzy, off air, can't turn Julio's song down
+    a.set_fader(0.2); // and cues with his own fader low
+    thread::sleep(Duration::from_millis(500));
+    let st = a.status();
+    assert_eq!(
+        st.partner_volume, 1.0,
+        "off air, the on-air song stays at full"
+    );
+    assert!(
+        heard(&a, &ha, 0.0, 0.0) > 0.05,
+        "Glizzy still hears Julio on air"
+    );
+    a.send(Cmd::TakeOver);
+    let st = wait_for(&a, 15, |s| s.on_air && s.fader == 1.0);
+    assert!(st.on_air, "Glizzy took it back: {st:?}");
+    assert_eq!(
+        st.fader, 1.0,
+        "taking over brings your own song back to full"
+    );
+    assert_eq!(
+        st.partner_volume, 1.0,
+        "Julio's song starts at full, Glizzy blends from there"
+    );
+    let st = wait_for(&b, 15, |s| !s.on_air && s.partner_volume == 1.0);
+    assert!(!st.on_air, "Julio handed over: {st:?}");
+    assert_eq!(
+        b.partner_volume(),
+        1.0,
+        "Julio's blend of Glizzy reset on the handoff"
+    );
+    // On air again, Glizzy can blend Julio out.
+    a.set_partner_volume(0.0);
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        a.status().partner_volume,
+        0.0,
+        "the on-air DJ sets the blend"
+    );
 
     a.stop();
     b.stop();
