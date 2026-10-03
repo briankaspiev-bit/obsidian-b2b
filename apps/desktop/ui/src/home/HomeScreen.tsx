@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { useEngineMode } from '../app/engineMode';
 import { SessionHeader } from '../live-session/SessionHeader';
 import { useEngine, useRoomState } from '../session/useSession';
-import { shrinkPhoto } from '../lib/photo';
+import { photoFor, shrinkPhoto } from '../lib/photo';
 
 /** Create a private room, or join one with the code the other DJ sent. */
 export function HomeScreen() {
@@ -37,7 +37,8 @@ export function HomeScreen() {
         <div className="home__you">
           <PhotoPicker
             name={room.local.name}
-            photoUrl={room.local.photoUrl}
+            photoUrl={photoFor(room.local)}
+            picked={!!room.local.photoUrl}
             onPick={(url) => engine.setLocalPhoto(url)}
           />
           <label className="home__you-label" htmlFor="dj-name">
@@ -181,7 +182,18 @@ export function HomeScreen() {
 }
 
 /** Your photo: the other DJ sees it in Booth Check and on your card in the set. */
-function PhotoPicker({ name, photoUrl, onPick }: { name: string; photoUrl?: string; onPick: (url: string | null) => void }) {
+function PhotoPicker({
+  name,
+  photoUrl,
+  picked,
+  onPick,
+}: {
+  name: string;
+  photoUrl?: string;
+  /** False while showing a stand-in photo the DJ didn't pick. */
+  picked: boolean;
+  onPick: (url: string | null) => void;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -198,7 +210,7 @@ function PhotoPicker({ name, photoUrl, onPick }: { name: string; photoUrl?: stri
           {photoUrl ? 'EDIT' : 'ADD PHOTO'}
         </span>
       </button>
-      {photoUrl && (
+      {picked && (
         <button type="button" className="photo-pick__remove" onClick={() => onPick(null)}>
           Remove
         </button>

@@ -2,6 +2,26 @@
 // other DJ over the booth link in pieces (each control message is one UDP packet,
 // so it has to stay small) and put back together there.
 
+import danaPhoto from '../assets/mock/dana.jpg';
+import valPhoto from '../assets/mock/val.jpg';
+
+/**
+ * Until a DJ picks their own photo, the test DJs get the mockup photos (Brian,
+ * 2026-10-03): Glizzy gets Dana's, Julio (and the Robot DJ, which stands in for
+ * him) the sunglasses one. Both apps ship them, so nothing is sent.
+ */
+export function mockupPhoto(name: string): string | undefined {
+  const n = name.trim().toLowerCase();
+  if (n === 'glizzy') return danaPhoto;
+  if (n === 'julio' || n === 'brians tester' || n === "brian's tester" || n === 'robot dj') return valPhoto;
+  return undefined;
+}
+
+/** The photo to show for a DJ: their own if they picked one, else a mockup one. */
+export function photoFor(dj: { name: string; photoUrl?: string } | null | undefined): string | undefined {
+  return dj ? (dj.photoUrl ?? mockupPhoto(dj.name)) : undefined;
+}
+
 /** Side of the square photo we keep and send, in pixels. */
 const PHOTO_PX = 240;
 /** Characters of the data URL per message, well under the link's 1200-byte limit. */

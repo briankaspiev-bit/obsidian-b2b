@@ -8,7 +8,7 @@
 // ready / TAKE OVER / handoff flow. Not yet: audio between the booths and
 // the recording, which wait for the engine's live mode.
 
-import { PhotoAssembler, photoChunks } from '../lib/photo';
+import { PhotoAssembler, photoChunks, photoFor } from '../lib/photo';
 import { bridge as tauriBridge, type Bridge, type EngineInfo, type LinkStatus, type LiveStatus, type Unlisten, type WireLevel } from './bridge';
 import { DeckFeed, type DeckAction, type DeckInfo } from './deck';
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS, type SessionEngine } from './engine';
@@ -329,7 +329,7 @@ export class TauriSessionEngine implements SessionEngine {
         (p) => {
           if (gen !== this.generation) return;
           const s = emptySession(Date.now());
-          s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name, city: r.local.city.trim(), photoUrl: r.local.photoUrl };
+          s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name, city: r.local.city.trim(), photoUrl: photoFor(r.local) };
           s.djs[REMOTE_ID] = { ...s.djs[REMOTE_ID], name: p.partnerName, city: GHOST_CITY };
           // The ghost opens on air; you cue, SYNC and take over.
           s.ownerId = REMOTE_ID;
@@ -568,12 +568,12 @@ export class TauriSessionEngine implements SessionEngine {
       const now = Date.now();
       const s = emptySession(now);
       const r = this.room;
-      s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name: r.local.name.trim(), city: r.local.city.trim(), photoUrl: r.local.photoUrl };
+      s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name: r.local.name.trim(), city: r.local.city.trim(), photoUrl: photoFor(r.local) };
       s.djs[REMOTE_ID] = {
         ...s.djs[REMOTE_ID],
         name: r.remote?.name ?? 'Other DJ',
         city: r.remote?.city ?? '',
-        photoUrl: r.remote?.photoUrl,
+        photoUrl: photoFor(r.remote),
       };
       // The host opens on air; the other DJ cues first.
       s.ownerId = r.isHost ? LOCAL_ID : REMOTE_ID;
