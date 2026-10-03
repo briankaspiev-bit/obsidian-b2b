@@ -50,7 +50,7 @@ jobs:
         env:
           # The room server baked into the app (repository variable).
           OBSIDIAN_DEFAULT_SERVER: ${{ vars.OBSIDIAN_SERVER }}
-        run: npx tauri build --target universal-apple-darwin --bundles dmg
+        run: npx tauri build --target universal-apple-darwin --bundles app,dmg
       - name: Check the app runs on both kinds of Mac
         working-directory: apps/desktop/ui/src-tauri/target/universal-apple-darwin/release/bundle
         run: |
