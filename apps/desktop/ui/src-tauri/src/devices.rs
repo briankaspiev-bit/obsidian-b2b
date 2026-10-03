@@ -279,8 +279,8 @@ mod tests {
         assert_eq!(list.inputs[0].id, TEST_MUSIC[0].0, "test music is the default input");
         for (id, _) in TEST_MUSIC {
             assert!(list.inputs.iter().any(|d| d.id == id), "{id} offered");
-            let t0 = std::time::Instant::now();
             let c = open_input(id).unwrap();
+            let t0 = std::time::Instant::now();
             std::thread::sleep(std::time::Duration::from_millis(500));
             // Timed, not assumed: a busy CI runner can oversleep.
             let (frames, secs) = (c.fifo.len_frames(), t0.elapsed().as_secs_f64());
