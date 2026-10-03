@@ -51,6 +51,23 @@ export interface DeckInfo {
   shield?: boolean;
   /** Wi-Fi shield on for what the partner hears. */
   partnerShield?: boolean;
+  /** Linear peak of what arrives from the partner since the last update (before your volume slider). */
+  partnerPeak?: number;
+}
+
+/**
+ * One plain line when something will make the set silent, most urgent first.
+ * From the first live test: a DJ took over with nothing coming out, and a
+ * pulled-down fader silenced him for the other DJ without him knowing.
+ */
+export function deckWarning(info: DeckInfo | null, partnerName: string, partnerSilentMs: number): string | null {
+  if (!info) return null;
+  if (info.onAir && info.deck && !info.deck.playing) return "You're on air but your deck is stopped. Press P to play.";
+  if (info.onAir && info.fader < 0.05) return `Your fader is down, so ${partnerName} hears nothing from you. Press ↑.`;
+  // Two seconds, so a breakdown or a quiet intro doesn't trip it.
+  if (info.partnerOnAir && partnerSilentMs >= 2000)
+    return `${partnerName} is on air but silent. Their fader may be down or their deck stopped.`;
+  return null;
 }
 
 export type DeckAction =

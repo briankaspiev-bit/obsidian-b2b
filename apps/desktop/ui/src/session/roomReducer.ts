@@ -11,7 +11,8 @@ export type RoomAction =
   | { type: 'remoteProfile'; remote: NonNullable<RoomState['remote']> }
   | { type: 'remoteLeft' }
   | { type: 'remoteReady'; ready: boolean }
-  | { type: 'devicesFound'; inputs: AudioDevice[]; outputs: AudioDevice[] }
+  /** `preferred`: what this DJ picked last time, used when that device is still there. */
+  | { type: 'devicesFound'; inputs: AudioDevice[]; outputs: AudioDevice[]; preferred?: { inputId?: string; outputId?: string } }
   | { type: 'selectInput'; id: string }
   | { type: 'selectOutput'; id: string }
   | { type: 'checkStarted' }
@@ -115,14 +116,16 @@ export function roomReducer(s: RoomState, a: RoomAction): RoomState {
       const next: RoomState = { ...s, remotePresence: a.ready ? 'ready' : 'joined' };
       return a.ready ? next : { ...next, startsAtMs: null };
     }
-    case 'devicesFound':
+    case 'devicesFound': {
+      const pick = (list: AudioDevice[], want?: string) => (list.some((d) => d.id === want) ? want! : list[0]?.id ?? null);
       return {
         ...s,
         inputs: a.inputs,
         outputs: a.outputs,
-        inputId: s.inputId ?? a.inputs[0]?.id ?? null,
-        outputId: s.outputId ?? a.outputs[0]?.id ?? null,
+        inputId: s.inputId ?? pick(a.inputs, a.preferred?.inputId),
+        outputId: s.outputId ?? pick(a.outputs, a.preferred?.outputId),
       };
+    }
     case 'selectInput':
     case 'selectOutput': {
       const key = a.type === 'selectInput' ? 'inputId' : 'outputId';
