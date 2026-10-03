@@ -278,11 +278,27 @@ function DeckButton({ label, keyHint, onClick, active, title }: { label: ReactNo
   );
 }
 
-function Slider({ label, value, max, onChange, keys }: { label: string; value: number; max: number; onChange: (v: number) => void; keys: string }) {
+function Slider({
+  label,
+  value,
+  max,
+  onChange,
+  keys,
+  disabled,
+  title,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  onChange: (v: number) => void;
+  keys?: string;
+  disabled?: boolean;
+  title?: string;
+}) {
   return (
-    <label className="deck__slider">
+    <label className="deck__slider" title={title}>
       <span className="deck__slider-label">
-        {label} <Key k={keys} />
+        {label} {keys && <Key k={keys} />}
       </span>
       <input
         type="range"
@@ -290,6 +306,7 @@ function Slider({ label, value, max, onChange, keys }: { label: string; value: n
         max={max}
         step={0.01}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
         onPointerUp={(e) => e.currentTarget.blur()}
       />
@@ -313,7 +330,17 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
   // When the partner was last heard (anything above about -50 dB).
   const partnerHeardAt = useRef<number | null>(null);
   if (info && (partnerHeardAt.current === null || (info.partnerPeak ?? 1) > 0.003)) partnerHeardAt.current = info.nowMs;
-  const warning = deckWarning(info, partnerName, info && partnerHeardAt.current !== null ? info.nowMs - partnerHeardAt.current : 0);
+  // When you last came off air, for the "bring your song down" nudge after a handoff.
+  const offAirAt = useRef<{ onAir: boolean; at: number | null }>({ onAir: false, at: null });
+  if (info && info.onAir !== offAirAt.current.onAir) {
+    offAirAt.current = { onAir: info.onAir, at: info.onAir ? null : info.nowMs };
+  }
+  const warning = deckWarning(
+    info,
+    partnerName,
+    info && partnerHeardAt.current !== null ? info.nowMs - partnerHeardAt.current : 0,
+    info && offAirAt.current.at !== null ? info.nowMs - offAirAt.current.at : null,
+  );
 
   return (
     <section className="deck" aria-label="DJ view">
@@ -384,7 +411,23 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
         )}
         <div className="deck__group deck__group--sliders">
           <Slider label="YOUR FADER" keys="↑↓" value={info?.fader ?? 1} max={1} onChange={(value) => onAction({ kind: 'fader', value })} />
-          <Slider label={`${partnerName.toUpperCase()} IN YOUR EARS`} keys="←→" value={info?.partnerVolume ?? 1} max={2} onChange={(value) => onAction({ kind: 'partnerVolume', value })} />
+          <Slider
+            label={`${partnerName.toUpperCase()} IN THE MIX`}
+            keys="←→"
+            value={info?.partnerVolume ?? 1}
+            max={2}
+            onChange={(value) => onAction({ kind: 'partnerVolume', value })}
+            disabled={!info?.onAir}
+            title={info?.onAir ? `Blend ${partnerName}'s song in or out` : `${partnerName} is on air, so they set the blend. Take over to set it yourself.`}
+          />
+          <Slider
+            label={`${partnerName.toUpperCase()}'S FADER`}
+            value={info?.partnerFader ?? 1}
+            max={1}
+            onChange={() => {}}
+            disabled
+            title={`Where ${partnerName} has their own fader, so you can blend together`}
+          />
         </div>
         {info?.ghostSays && (
           <div className="deck__group">

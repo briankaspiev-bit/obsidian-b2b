@@ -150,43 +150,49 @@ fn each_slider_moves_only_its_own_side_in_the_headphones() {
         }
         (out.iter().map(|x| x * x).sum::<f32>() / out.len().max(1) as f32).sqrt()
     };
+    // Off air, the Ghost is on air: you cue under it, and only the DJ on air
+    // sets the blend, so your slider can't turn the Ghost down.
     let ghost_only = level(0.0, 1.0);
-    let you_only = level(1.0, 0.0);
     let both = level(1.0, 1.0);
-    let nothing = level(0.0, 0.0);
-    let ghost_loud = level(0.0, 2.0);
+    let ghost_cant_mute = level(0.0, 0.0);
 
-    // After you take over, the Ghost rides along under you; its slider still mutes it.
+    // After you take over, the Ghost rides along under you and you set the blend.
     ctl.send(Cmd::TakeOver);
     wait_for(&ctl, 5, |s| s.on_air);
     let riding = level(0.0, 1.0);
     let riding_muted = level(0.0, 0.0);
-    eprintln!("after takeover: ghost {riding:.3} muted {riding_muted:.4}");
-    assert!(
-        riding_muted < 0.001,
-        "ghost muted after takeover: {riding_muted}"
-    );
+    let riding_loud = level(0.0, 2.0);
+    let you_only = level(1.0, 0.0);
 
     ctl.stop();
     engine.join().unwrap().unwrap();
     ghost.stop().unwrap();
 
     eprintln!(
-        "ghost {ghost_only:.3} you {you_only:.3} both {both:.3} none {nothing:.4} ghost x2 {ghost_loud:.3}"
+        "off air: ghost {ghost_only:.3} both {both:.3} ghost slider down {ghost_cant_mute:.3}; \
+         on air: ghost {riding:.3} muted {riding_muted:.4} x2 {riding_loud:.3} you {you_only:.3}"
     );
-    assert!(nothing < 0.001, "silent with both down: {nothing}");
+    assert!(ghost_only > 0.05, "you hear the Ghost on air: {ghost_only}");
+    assert!(both > ghost_only, "both {both} louder than the Ghost alone");
     assert!(
-        ghost_only > 0.05,
-        "ghost gone with your fader down: {ghost_only}"
-    );
-    assert!(you_only > 0.05, "you gone with the ghost down: {you_only}");
-    assert!(
-        both > ghost_only.max(you_only),
-        "both {both} louder than either alone"
+        (ghost_cant_mute / ghost_only - 1.0).abs() < 0.3,
+        "off air, your slider leaves the on-air Ghost alone: {ghost_only} -> {ghost_cant_mute}"
     );
     assert!(
-        (ghost_loud / ghost_only - 2.0).abs() < 0.3,
-        "ghost slider scales only the ghost: {ghost_only} -> {ghost_loud}"
+        riding > 0.05,
+        "the Ghost rides along after you take over: {riding}"
+    );
+    assert!(
+        riding_muted < 0.001,
+        "on air, you can blend the Ghost out: {riding_muted}"
+    );
+    assert!(
+        (riding_loud / riding - 2.0).abs() < 0.3,
+        "the blend scales only the Ghost: {riding} -> {riding_loud}"
+    );
+    assert!(
+        you_only > 0.05,
+        "you on air with the Ghost blended out: {you_only}"
     );
 }
 

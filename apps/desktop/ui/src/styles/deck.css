@@ -342,13 +342,16 @@
 .ls[data-dj] .ls-booth {
   row-gap: 10px;
 }
-.ls[data-dj] .dj-panel__photo,
 .ls[data-dj] .dj-panel__track,
 .ls[data-dj] .ls-booth__under-left,
 .ls[data-dj] .ls-booth__under-right {
   display: none;
 }
-/* The waveforms carry the music now: the booth row only says who has the mix. */
+/* The waveforms carry the music now: the booth row says who has the mix, with
+   each DJ's photo in their card (the one on air at full, the next one dimmed). */
+.ls[data-dj] .dj-panel__photo {
+  width: 58%;
+}
 .ls[data-dj] .dj-panel__plate {
   gap: 10px;
   padding: 14px 20px;

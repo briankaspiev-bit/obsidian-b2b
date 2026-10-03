@@ -41,6 +41,7 @@ const liveStatus = (onAir: boolean, partnerOnAir: boolean, ready = false, partne
   deck: null,
   fader: 1,
   partner_volume: 1,
+  partner_fader: 1,
   ghost_says: null,
 });
 

@@ -1,3 +1,4 @@
+import { photoFor } from '../lib/photo';
 import { useEffect, useState } from 'react';
 import { LevelMeter } from '../live-session/LevelMeter';
 import { SessionHeader } from '../live-session/SessionHeader';
@@ -34,7 +35,7 @@ export function BoothCheckScreen() {
               <h2 id="your-booth" className="booth-card__eyebrow">
                 YOUR BOOTH
               </h2>
-              <Person name={room.local.name} city={room.local.city} photoUrl={room.local.photoUrl} you />
+              <Person name={room.local.name} city={room.local.city} photoUrl={photoFor(room.local)} you />
             </div>
 
             <DeviceField
@@ -75,7 +76,7 @@ export function BoothCheckScreen() {
                 OTHER BOOTH
               </h2>
               {room.remote ? (
-                <Person name={room.remote.name} city={room.remote.city} photoUrl={room.remote.photoUrl} />
+                <Person name={room.remote.name} city={room.remote.city} photoUrl={photoFor(room.remote)} />
               ) : (
                 <div className="person person--empty">
                   <span className="person__avatar" aria-hidden="true" />

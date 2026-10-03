@@ -144,6 +144,9 @@ export class MockSessionEngine implements SessionEngine {
   setLocalProfile = (profile: { name: string; city: string }) =>
     this.roomDispatch({ type: 'setLocal', local: { ...this.room.local, ...profile } });
 
+  setLocalPhoto = (photoUrl: string | null) =>
+    this.roomDispatch({ type: 'setLocal', local: { ...this.room.local, photoUrl: photoUrl ?? undefined } });
+
   createRoom = () => {
     if (this.room.phase !== 'home') return;
     this.enterBooth(this.makeCode(), true);

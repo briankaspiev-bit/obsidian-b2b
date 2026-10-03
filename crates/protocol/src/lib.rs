@@ -92,6 +92,13 @@ pub enum Packet {
         shield: bool,
         tiebreak: u32,
         name: String,
+        /// The sender's blend of our song while it is on air, in percent (0..=200;
+        /// 100 = as we send it). Trails the packet, so older builds ignore it and
+        /// packets from them read as 100.
+        blend: u8,
+        /// The sender's own fader, in percent (0..=100), so each DJ sees both
+        /// levels during a handoff. Trails `blend`; older builds read as 100.
+        fader: u8,
     },
 }
 
@@ -204,6 +211,8 @@ impl Packet {
                 shield,
                 tiebreak,
                 name,
+                blend,
+                fader,
             } => {
                 out.push(KIND_STATE);
                 out.extend_from_slice(&epoch.to_be_bytes());
@@ -212,6 +221,8 @@ impl Packet {
                 let n = &name.as_bytes()[..name.len().min(64)];
                 out.push(n.len() as u8);
                 out.extend_from_slice(n);
+                out.push(*blend);
+                out.push(*fader);
             }
         }
     }
@@ -263,6 +274,8 @@ impl Packet {
                 let tiebreak = r.u32()?;
                 let n = r.u8()? as usize;
                 let name = String::from_utf8_lossy(r.take(n)?).into_owned();
+                let blend = r.u8().unwrap_or(100);
+                let fader = r.u8().unwrap_or(100);
                 Ok(Packet::State {
                     epoch,
                     on_air: flags & 1 != 0,
@@ -270,6 +283,8 @@ impl Packet {
                     shield: flags & 4 != 0,
                     tiebreak,
                     name,
+                    blend,
+                    fader,
                 })
             }
             k => Err(DecodeError::BadKind(k)),
@@ -323,6 +338,8 @@ mod tests {
                 shield: true,
                 tiebreak: 99,
                 name: "Brian".into(),
+                blend: 40,
+                fader: 75,
             },
         ] {
             p.encode(&mut buf);

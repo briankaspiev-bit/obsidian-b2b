@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { useEngineMode } from '../app/engineMode';
 import { SessionHeader } from '../live-session/SessionHeader';
 import { useEngine, useRoomState } from '../session/useSession';
+import { photoFor, shrinkPhoto } from '../lib/photo';
 
 /** Create a private room, or join one with the code the other DJ sent. */
 export function HomeScreen() {
@@ -34,6 +35,12 @@ export function HomeScreen() {
         </section>
 
         <div className="home__you">
+          <PhotoPicker
+            name={room.local.name}
+            photoUrl={photoFor(room.local)}
+            picked={!!room.local.photoUrl}
+            onPick={(url) => engine.setLocalPhoto(url)}
+          />
           <label className="home__you-label" htmlFor="dj-name">
             YOUR DJ NAME
           </label>
@@ -170,6 +177,67 @@ export function HomeScreen() {
           </p>
         )}
       </main>
+    </div>
+  );
+}
+
+/** Your photo: the other DJ sees it in Booth Check and on your card in the set. */
+function PhotoPicker({
+  name,
+  photoUrl,
+  picked,
+  onPick,
+}: {
+  name: string;
+  photoUrl?: string;
+  /** False while showing a stand-in photo the DJ didn't pick. */
+  picked: boolean;
+  onPick: (url: string | null) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="photo-pick">
+      <button
+        type="button"
+        className="photo-pick__avatar"
+        onClick={() => input.current?.click()}
+        title={photoUrl ? 'Change your photo' : 'Add your photo'}
+        aria-label={photoUrl ? 'Change your photo' : 'Add your photo'}
+      >
+        {photoUrl ? <img src={photoUrl} alt="" /> : <span aria-hidden="true">{name.trim().slice(0, 1).toUpperCase() || '+'}</span>}
+        <span className="photo-pick__badge" aria-hidden="true">
+          {photoUrl ? 'EDIT' : 'ADD PHOTO'}
+        </span>
+      </button>
+      {picked && (
+        <button type="button" className="photo-pick__remove" onClick={() => onPick(null)}>
+          Remove
+        </button>
+      )}
+      {error && (
+        <span className="photo-pick__error" role="alert">
+          {error}
+        </span>
+      )}
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (!file) return;
+          shrinkPhoto(file).then(
+            (url) => {
+              setError(null);
+              onPick(url);
+            },
+            (err: Error) => setError(err.message),
+          );
+        }}
+      />
     </div>
   );
 }

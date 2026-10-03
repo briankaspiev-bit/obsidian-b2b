@@ -66,6 +66,7 @@ export class SimDeck {
   private sync = false;
   private fader = 1;
   private partnerVolume = 1;
+  private wasOnAir: boolean | null = null;
   /** Partner track position at output time 0 (ms); off your grid, so SYNC has work to do. */
   private partnerStart = 64 * (60_000 / PARTNER_BPM) + 137;
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -177,6 +178,11 @@ export class SimDeck {
   private publish() {
     const now = this.col * COLUMN_MS;
     const air = this.onAir();
+    // Same rules as the engine: a handoff resets the blend, and only the DJ on
+    // air sets it.
+    if (this.wasOnAir !== null && air.you !== this.wasOnAir) this.partnerVolume = 1;
+    this.wasOnAir = air.you;
+    if (!air.you) this.partnerVolume = 1;
     const deck: DeckStatus = {
       title: 'Midnight Run (Extended Mix)',
       playing: this.playing,
@@ -198,6 +204,7 @@ export class SimDeck {
       partnerOnAir: air.partner,
       fader: this.fader,
       partnerVolume: this.partnerVolume,
+      partnerFader: 1,
       ghostSays: this.partnerSays,
     };
     this.feed.update(info, this.startedAt + now);

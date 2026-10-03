@@ -286,6 +286,11 @@ fn drive(ctl: &LiveControls, minutes: f64, cue_s: f64) -> Vec<Sample> {
         if st.on_air {
             off_air_since = None;
             stage = 0;
+            // A takeover keeps the robot's song at the level you had it blended
+            // to; like a DJ, it then brings its fader up over a few seconds.
+            if st.fader < 1.0 {
+                ctl.set_fader((st.fader + 0.2).clamp(0.2, 1.0));
+            }
         } else {
             let since = *off_air_since.get_or_insert(t);
             let off = t - since;

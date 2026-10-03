@@ -8,6 +8,7 @@
 // ready / TAKE OVER / handoff flow. Not yet: audio between the booths and
 // the recording, which wait for the engine's live mode.
 
+import { PhotoAssembler, photoChunks, photoFor } from '../lib/photo';
 import { bridge as tauriBridge, type Bridge, type EngineInfo, type LinkStatus, type LiveStatus, type Unlisten, type WireLevel } from './bridge';
 import { DeckFeed, type DeckAction, type DeckInfo } from './deck';
 import { HANDOFF_DURATION_MS, START_COUNTDOWN_MS, type SessionEngine } from './engine';
@@ -28,8 +29,8 @@ const CHECK_SECONDS = 4;
 
 function loadProfile(): RoomState['local'] {
   try {
-    const p = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? 'null') as { name?: string; city?: string } | null;
-    return { name: p?.name ?? '', city: p?.city ?? '' };
+    const p = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? 'null') as { name?: string; city?: string; photoUrl?: string } | null;
+    return { name: p?.name ?? '', city: p?.city ?? '', ...(p?.photoUrl ? { photoUrl: p.photoUrl } : {}) };
   } catch {
     return { name: '', city: '' };
   }
@@ -54,7 +55,7 @@ function saveDevicePick(key: 'inputId' | 'outputId', id: string) {
   }
 }
 
-function saveProfile(p: { name: string; city: string }) {
+function saveProfile(p: RoomState['local']) {
   try {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
   } catch {
@@ -81,6 +82,7 @@ function deckInfo(st: LiveStatus): DeckInfo {
     partnerOnAir: st.partner_on_air,
     fader: st.fader,
     partnerVolume: st.partner_volume,
+    partnerFader: st.partner_fader,
     ghostSays: st.ghost_says,
     shield: st.shield ?? false,
     partnerShield: st.partner_shield ?? false,
@@ -129,6 +131,9 @@ export class TauriSessionEngine implements SessionEngine {
   private engineLive = false;
   /** A hello that arrived before our side finished pairing. */
   private pendingHello: { name: string; city: string } | null = null;
+  /** The other DJ's photo, put back together from its pieces. */
+  private photos = new PhotoAssembler();
+  private remotePhoto: string | null = null;
   /** Bumped on leave so late answers from an old room are ignored. */
   private generation = 0;
   /** The DJ view's data while the engine runs a set. */
@@ -182,7 +187,14 @@ export class TauriSessionEngine implements SessionEngine {
 
   setLocalProfile = (profile: { name: string; city: string }) => {
     // Trimmed when used, not here: this runs on every keystroke.
-    const local = { name: profile.name.slice(0, 40), city: profile.city.slice(0, 40) };
+    const local = { ...this.room.local, name: profile.name.slice(0, 40), city: profile.city.slice(0, 40) };
+    saveProfile(local);
+    this.roomDispatch({ type: 'setLocal', local });
+  };
+
+  setLocalPhoto = (photoUrl: string | null) => {
+    const { photoUrl: _old, ...rest } = this.room.local;
+    const local = photoUrl ? { ...rest, photoUrl } : rest;
     saveProfile(local);
     this.roomDispatch({ type: 'setLocal', local });
   };
@@ -291,6 +303,8 @@ export class TauriSessionEngine implements SessionEngine {
     this.clearTimers();
     this.peaks = null;
     this.pendingHello = null;
+    this.photos = new PhotoAssembler();
+    this.remotePhoto = null;
     this.feed = null;
     this.roomDispatch({ type: 'leave' });
     void this.bridge.leaveRoom().catch(() => {});
@@ -315,7 +329,7 @@ export class TauriSessionEngine implements SessionEngine {
         (p) => {
           if (gen !== this.generation) return;
           const s = emptySession(Date.now());
-          s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name, city: r.local.city.trim() };
+          s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name, city: r.local.city.trim(), photoUrl: photoFor(r.local) };
           s.djs[REMOTE_ID] = { ...s.djs[REMOTE_ID], name: p.partnerName, city: GHOST_CITY };
           // The ghost opens on air; you cue, SYNC and take over.
           s.ownerId = REMOTE_ID;
@@ -408,6 +422,29 @@ export class TauriSessionEngine implements SessionEngine {
       this.pendingHello = null;
     }
     this.send({ t: 'hello', name: this.room.local.name.trim(), city: this.room.local.city.trim() });
+    this.showRemotePhoto();
+    this.sendPhoto();
+  }
+
+  /** Our photo, in pieces; sent a few times since any piece can be lost. */
+  private sendPhoto() {
+    const gen = this.generation;
+    for (const at of [0, 1500, 4000, 9000, 20000]) {
+      this.later(at, () => {
+        const url = this.room.local.photoUrl;
+        if (gen !== this.generation || this.room.phase !== 'booth' || !url) return;
+        photoChunks(url).forEach((c) => this.send(c));
+      });
+    }
+  }
+
+  private showRemotePhoto() {
+    const photoUrl = this.remotePhoto;
+    if (!photoUrl || !this.room.remote) return;
+    this.roomDispatch({ type: 'remoteProfile', remote: { ...this.room.remote, photoUrl } });
+    const dj = this.session.djs[REMOTE_ID];
+    this.session = { ...this.session, djs: { ...this.session.djs, [REMOTE_ID]: { ...dj, photoUrl } } };
+    this.sessionListeners.emit();
   }
 
   private loadDevices() {
@@ -469,6 +506,14 @@ export class TauriSessionEngine implements SessionEngine {
         return this.dispatch({ type: 'end', atMs: now });
       case 'leave':
         return this.onLinkStatus({ ...this.lastStatus(), state: 'left' });
+      case 'photo': {
+        const url = this.photos.add(m);
+        if (url) {
+          this.remotePhoto = url;
+          this.showRemotePhoto();
+        }
+        return;
+      }
     }
   }
 
@@ -523,8 +568,13 @@ export class TauriSessionEngine implements SessionEngine {
       const now = Date.now();
       const s = emptySession(now);
       const r = this.room;
-      s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name: r.local.name.trim(), city: r.local.city.trim() };
-      s.djs[REMOTE_ID] = { ...s.djs[REMOTE_ID], name: r.remote?.name ?? 'Other DJ', city: r.remote?.city ?? '' };
+      s.djs[LOCAL_ID] = { ...s.djs[LOCAL_ID], name: r.local.name.trim(), city: r.local.city.trim(), photoUrl: photoFor(r.local) };
+      s.djs[REMOTE_ID] = {
+        ...s.djs[REMOTE_ID],
+        name: r.remote?.name ?? 'Other DJ',
+        city: r.remote?.city ?? '',
+        photoUrl: photoFor(r.remote),
+      };
       // The host opens on air; the other DJ cues first.
       s.ownerId = r.isHost ? LOCAL_ID : REMOTE_ID;
       this.session = s;

@@ -77,6 +77,7 @@ export interface LiveStatus {
   deck: DeckStatus | null;
   fader: number;
   partner_volume: number;
+  partner_fader: number;
   /** Practice: what the ghost DJ is doing. */
   ghost_says: string | null;
   /** Wi-Fi shield: you asked the partner for extra copies of their sound. */

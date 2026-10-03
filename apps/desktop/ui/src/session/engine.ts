@@ -18,6 +18,8 @@ export interface SessionEngine {
 
   /** Your name (and city) as the other DJ will see it. */
   setLocalProfile(profile: { name: string; city: string }): void;
+  /** Your photo (a small data URL), shown to the other DJ; null removes it. */
+  setLocalPhoto(photoUrl: string | null): void;
   /** Opens a private room and shows its invite code. */
   createRoom(): void;
   /** Looks up an invite code; on failure sets RoomState.joinError. */
