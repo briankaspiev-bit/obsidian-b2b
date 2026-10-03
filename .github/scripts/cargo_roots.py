@@ -1,8 +1,8 @@
 """Print every Cargo workspace in the repo that the Rust CI job should test and build.
 
 One line per workspace: its root relative to the repo, a tab, then cargo flags that
-leave out Tauri app crates (those are built by the desktop job, which builds their
-web UI first; tauri-build fails without it).
+leave out Tauri app crates and crates built on one, like the Robot DJ (those are
+built by the desktop job, which builds their web UI first; tauri-build fails without it).
 
 The engine workspace lives at the repo root, but some tools (tools/merge) and possibly
 services/ build standalone with their own [workspace]. Asking cargo for each
@@ -28,6 +28,13 @@ def is_tauri_app(manifest_dir: pathlib.Path) -> bool:
     )
 
 
+def uses_tauri_app(package: dict) -> bool:
+    return any(
+        dep.get("path") and is_tauri_app(pathlib.Path(dep["path"]))
+        for dep in package["dependencies"]
+    )
+
+
 workspaces = {}  # root -> set of Tauri package names to exclude
 for manifest in manifests:
     if is_tauri_app((repo / manifest).parent):
@@ -42,10 +49,12 @@ for manifest in manifests:
         sys.stderr.write(f"cargo metadata failed for {manifest}:\n{meta.stderr}\n")
         sys.exit(1)
     data = json.loads(meta.stdout)
+    if all(uses_tauri_app(p) for p in data["packages"]):
+        continue
     root = pathlib.Path(data["workspace_root"]).resolve().relative_to(repo).as_posix()
     excludes = workspaces.setdefault(root, set())
     for package in data["packages"]:
-        if is_tauri_app(pathlib.Path(package["manifest_path"]).parent):
+        if is_tauri_app(pathlib.Path(package["manifest_path"]).parent) or uses_tauri_app(package):
             excludes.add(package["name"])
 
 for root in sorted(workspaces):
