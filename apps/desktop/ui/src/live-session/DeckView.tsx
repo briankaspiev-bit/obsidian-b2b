@@ -330,7 +330,17 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
   // When the partner was last heard (anything above about -50 dB).
   const partnerHeardAt = useRef<number | null>(null);
   if (info && (partnerHeardAt.current === null || (info.partnerPeak ?? 1) > 0.003)) partnerHeardAt.current = info.nowMs;
-  const warning = deckWarning(info, partnerName, info && partnerHeardAt.current !== null ? info.nowMs - partnerHeardAt.current : 0);
+  // When you last came off air, for the "bring your song down" nudge after a handoff.
+  const offAirAt = useRef<{ onAir: boolean; at: number | null }>({ onAir: false, at: null });
+  if (info && info.onAir !== offAirAt.current.onAir) {
+    offAirAt.current = { onAir: info.onAir, at: info.onAir ? null : info.nowMs };
+  }
+  const warning = deckWarning(
+    info,
+    partnerName,
+    info && partnerHeardAt.current !== null ? info.nowMs - partnerHeardAt.current : 0,
+    info && offAirAt.current.at !== null ? info.nowMs - offAirAt.current.at : null,
+  );
 
   return (
     <section className="deck" aria-label="DJ view">

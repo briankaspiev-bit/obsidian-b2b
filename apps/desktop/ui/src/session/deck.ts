@@ -63,7 +63,16 @@ export interface DeckInfo {
  * pulled-down fader silenced him for the other DJ without him knowing. Also
  * nudges a DJ who took over at a low level to bring their fader up.
  */
-export function deckWarning(info: DeckInfo | null, partnerName: string, partnerSilentMs: number): string | null {
+/** How long after handing over the outgoing DJ is nudged to fade out. */
+export const HANDOVER_BLEND_MS = 30_000;
+
+export function deckWarning(
+  info: DeckInfo | null,
+  partnerName: string,
+  partnerSilentMs: number,
+  /** Since this DJ handed over (null if they never did). */
+  sinceHandOverMs: number | null = null,
+): string | null {
   if (!info) return null;
   if (info.onAir && info.deck && !info.deck.playing) return "You're on air but your deck is stopped. Press P to play.";
   if (info.onAir && info.fader < 0.05) return `Your fader is down, so ${partnerName} hears nothing from you. Press ↑.`;
@@ -74,6 +83,16 @@ export function deckWarning(info: DeckInfo | null, partnerName: string, partnerS
   // Two seconds, so a breakdown or a quiet intro doesn't trip it.
   if (info.partnerOnAir && partnerSilentMs >= 2000)
     return `${partnerName} is on air but silent. Their fader may be down or their deck stopped.`;
+  // Just handed over: both DJs blend the transition, each on their own fader.
+  if (
+    !info.onAir &&
+    info.partnerOnAir &&
+    sinceHandOverMs !== null &&
+    sinceHandOverMs < HANDOVER_BLEND_MS &&
+    info.fader >= 0.05 &&
+    info.deck?.playing
+  )
+    return `${partnerName} is on air. Bring your song down with ↓ as they bring theirs in.`;
   return null;
 }
 

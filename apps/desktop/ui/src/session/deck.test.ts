@@ -92,6 +92,12 @@ describe('deckWarning', () => {
     expect(deckWarning({ ...onAir, deck: { ...base.deck!, playing: false } }, 'Glizzy', 0)).toContain('Press P');
     expect(deckWarning({ ...onAir, fader: 0 }, 'Glizzy', 0)).toContain('Glizzy hears nothing from you');
   });
+  it('right after handing over, says to bring your song down while they bring theirs in', () => {
+    expect(deckWarning(base, 'Glizzy', 0, 5_000)).toBe('Glizzy is on air. Bring your song down with ↓ as they bring theirs in.');
+    expect(deckWarning({ ...base, fader: 0 }, 'Glizzy', 0, 5_000)).toBeNull();
+    expect(deckWarning(base, 'Glizzy', 0, 40_000)).toBeNull();
+    expect(deckWarning(base, 'Glizzy', 0, null)).toBeNull();
+  });
   it('after a takeover at a low level, says to bring the fader up', () => {
     const onAir = { ...base, onAir: true, partnerOnAir: false };
     expect(deckWarning({ ...onAir, fader: 0.3 }, 'Glizzy', 0)).toBe(
