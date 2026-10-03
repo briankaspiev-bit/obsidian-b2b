@@ -36,3 +36,17 @@ fader up, presses **R**, then **Space**.
 Keep your fader up while you're on air: pulling it down silences you for the
 other DJ too. If the set goes quiet, the orange line under the beat meter says
 why.
+
+## No partner around? Play with the Robot DJ
+
+The Robot DJ joins your room from a server in the cloud, plays **Bells**, and
+takes over every so often so you can practise handoffs against a real
+internet connection. Afterwards it reports how your sound reached it.
+
+1. Click **CREATE ROOM** and send the code to Claude in the project chat.
+2. Stay in Booth Check. After a few minutes **Robot DJ** joins: pick your
+   music and headphones, run the check, press **I'M READY**.
+3. Mix as usual. About a minute after you go on air the robot syncs, shows
+   READY and takes over; press **Space** to take it back.
+
+(Developers: Actions → robot-dj → Run workflow, with the room code.)
