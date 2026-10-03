@@ -226,7 +226,7 @@ async fn start_live(start_on_air: bool, app: AppHandle) -> CmdResult<()> {
     }
     let setup = live::LiveSetup {
         name: booth.name.lock().map_err(err)?.clone(),
-        source: live::Source::Capture(capture),
+        source: live::Source::for_room(capture),
         output_id: booth.output_id.lock().map_err(err)?.clone(),
         sock,
         peer,

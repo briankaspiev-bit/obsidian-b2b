@@ -35,6 +35,25 @@ function loadProfile(): RoomState['local'] {
   }
 }
 
+const DEVICES_KEY = 'obsidian.devices';
+
+/** The input and output this DJ picked last time, so tomorrow's setup is one click. */
+function loadDevicePicks(): { inputId?: string; outputId?: string } {
+  try {
+    return (JSON.parse(localStorage.getItem(DEVICES_KEY) ?? 'null') as { inputId?: string; outputId?: string } | null) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDevicePick(key: 'inputId' | 'outputId', id: string) {
+  try {
+    localStorage.setItem(DEVICES_KEY, JSON.stringify({ ...loadDevicePicks(), [key]: id }));
+  } catch {
+    // Not fatal: the pick just isn't remembered next time.
+  }
+}
+
 function saveProfile(p: { name: string; city: string }) {
   try {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
@@ -65,6 +84,7 @@ function deckInfo(st: LiveStatus): DeckInfo {
     ghostSays: st.ghost_says,
     shield: st.shield ?? false,
     partnerShield: st.partner_shield ?? false,
+    partnerPeak: st.partner_peak,
   };
 }
 
@@ -209,11 +229,13 @@ export class TauriSessionEngine implements SessionEngine {
 
   selectInput = (id: string) => {
     this.roomDispatch({ type: 'selectInput', id });
+    saveDevicePick('inputId', id);
     this.startMeter(id);
   };
 
   selectOutput = (id: string) => {
     this.roomDispatch({ type: 'selectOutput', id });
+    saveDevicePick('outputId', id);
     void this.bridge.selectOutput(id).catch(() => {});
   };
 
@@ -393,8 +415,10 @@ export class TauriSessionEngine implements SessionEngine {
     this.bridge.listDevices().then(
       (d) => {
         if (gen !== this.generation) return;
-        this.roomDispatch({ type: 'devicesFound', inputs: d.inputs, outputs: d.outputs });
+        this.roomDispatch({ type: 'devicesFound', inputs: d.inputs, outputs: d.outputs, preferred: loadDevicePicks() });
         if (this.room.inputId) this.startMeter(this.room.inputId);
+        // The engine opens what the screen shows, a remembered pick included.
+        if (this.room.outputId) void this.bridge.selectOutput(this.room.outputId).catch(() => {});
       },
       () => {},
     );

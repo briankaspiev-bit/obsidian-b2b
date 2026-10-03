@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode, type WheelEvent } from 'react';
-import { beatInBar, beatsBetween, COLUMN_MS, phaseOf, type BeatClock, type DeckAction, type DeckFeed, type DeckInfo } from '../session/deck';
+import { beatInBar, beatsBetween, COLUMN_MS, deckWarning, phaseOf, type BeatClock, type DeckAction, type DeckFeed, type DeckInfo } from '../session/deck';
 
 /** How much time the waveforms show, centred on what you hear now. */
 const SPAN_MS = 8000;
@@ -310,6 +310,10 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
   const deck = info?.deck ?? null;
   const partnerBpm = info?.partner ? 60_000 / info.partner.period_ms : info?.partnerBpm;
   const youBpm = deck?.bpm ?? (info?.you ? 60_000 / info.you.period_ms : null);
+  // When the partner was last heard (anything above about -50 dB).
+  const partnerHeardAt = useRef<number | null>(null);
+  if (info && (partnerHeardAt.current === null || (info.partnerPeak ?? 1) > 0.003)) partnerHeardAt.current = info.nowMs;
+  const warning = deckWarning(info, partnerName, info && partnerHeardAt.current !== null ? info.nowMs - partnerHeardAt.current : 0);
 
   return (
     <section className="deck" aria-label="DJ view">
@@ -353,6 +357,12 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
       <Waveforms feed={feed} partnerRole={partnerRole} youRole={youRole} onNudge={(ms) => onAction({ kind: 'nudge', ms })} />
 
       <PhaseMeter info={info} feed={feed} partnerName={partnerName} />
+
+      {warning && (
+        <p className="deck__warning" role="alert">
+          {warning}
+        </p>
+      )}
 
       <div className="deck__controls">
         {deck && (

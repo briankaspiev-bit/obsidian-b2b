@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beatInBar, beatsBetween, DeckFeed, KEEP_COLUMNS, phaseOf } from './deck';
+import { beatInBar, beatsBetween, DeckFeed, deckWarning, KEEP_COLUMNS, phaseOf, type DeckInfo } from './deck';
 import { SimDeck } from './simDeck';
 
 const clock = (beat: number, bar: number | null = null, period = 480) => ({ period_ms: period, beat_ms: beat, bar_ms: bar });
@@ -67,5 +67,33 @@ describe('demo deck', () => {
     expect(Math.abs(phaseOf(info.you, info.partner)!.ms)).toBeLessThan(1);
     sim.act({ kind: 'nudge', ms: 20 });
     expect(phaseOf(sim.feed.info!.you, sim.feed.info!.partner)!.ms).toBeCloseTo(-20, 0);
+  });
+});
+
+describe('deckWarning', () => {
+  const base: DeckInfo = {
+    nowMs: 0,
+    you: null,
+    partner: null,
+    partnerBpm: null,
+    deck: { title: 'Built-in: Bells', playing: true, track_bpm: 125, bpm: 125, pitch_pct: 0, sync: false, sync_err_ms: null, pos_s: 0, len_s: 60 },
+    onAir: false,
+    partnerOnAir: true,
+    fader: 1,
+    partnerVolume: 1,
+    ghostSays: null,
+  };
+  it('says nothing while the set is audible', () => {
+    expect(deckWarning(base, 'Glizzy', 0)).toBeNull();
+    expect(deckWarning({ ...base, fader: 0 }, 'Glizzy', 0)).toBeNull(); // cueing with the fader down is normal
+  });
+  it('flags a silent takeover: stopped deck, then fader down', () => {
+    const onAir = { ...base, onAir: true, partnerOnAir: false };
+    expect(deckWarning({ ...onAir, deck: { ...base.deck!, playing: false } }, 'Glizzy', 0)).toContain('Press P');
+    expect(deckWarning({ ...onAir, fader: 0 }, 'Glizzy', 0)).toContain('Glizzy hears nothing from you');
+  });
+  it('flags an on-air partner who has been silent for 2 s', () => {
+    expect(deckWarning(base, 'Glizzy', 1500)).toBeNull();
+    expect(deckWarning(base, 'Glizzy', 2000)).toContain('Glizzy is on air but silent');
   });
 });

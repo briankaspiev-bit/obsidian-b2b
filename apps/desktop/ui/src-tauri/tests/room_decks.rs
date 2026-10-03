@@ -1,0 +1,132 @@
+//! A live room between two DJs with no mixer: each picked "Test music", so the
+//! room plays it on the built-in deck. The opener is already playing; the other
+//! DJ can play, SYNC and TAKE OVER, like in Practice.
+
+use std::net::UdpSocket;
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use obsidian_audio_io::{AdaptiveResampler, AudioFifo};
+use obsidian_desktop::devices::{open_input, TEST_MUSIC};
+use obsidian_desktop::live::Source;
+use obsidian_live::{run_live, Cmd, LiveConfig, LiveControls, LiveSource, LiveStatus};
+
+fn wait_for(ctl: &LiveControls, secs: u64, ok: impl Fn(&LiveStatus) -> bool) -> LiveStatus {
+    let until = Instant::now() + Duration::from_secs(secs);
+    loop {
+        let st = ctl.status();
+        if ok(&st) || Instant::now() > until {
+            return st;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// RMS of 1.5 s of what a DJ hears, with their fader and the partner slider set so.
+fn heard(ctl: &LiveControls, sink: &AudioFifo, fader: f32, pvol: f32) -> f32 {
+    ctl.set_fader(fader);
+    ctl.set_partner_volume(pvol);
+    thread::sleep(Duration::from_millis(300));
+    sink.clear();
+    thread::sleep(Duration::from_millis(1500));
+    // Target just under what's queued, so the resampler reads it all as is.
+    let mut rs = AdaptiveResampler::new(48_000, 48_000, sink.len_frames() - 1_000);
+    let (mut out, mut block) = (Vec::new(), vec![0f32; 480 * 2]);
+    while sink.len_frames() > 1_000 {
+        rs.pull(sink, &mut block);
+        out.extend_from_slice(&block);
+    }
+    (out.iter().map(|x| x * x).sum::<f32>() / out.len().max(1) as f32).sqrt()
+}
+
+/// The deck a room would play for "Test music" input `i`.
+fn room_deck(i: usize) -> LiveSource {
+    match Source::for_room(open_input(TEST_MUSIC[i].0).unwrap()) {
+        Source::Deck { title, program } => LiveSource::Deck { title, program },
+        Source::Capture(_) => panic!("Test music should play on the built-in deck"),
+    }
+}
+
+#[test]
+fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
+    let (sa, sb) = (
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+    );
+    let (aa, ab) = (sa.local_addr().unwrap(), sb.local_addr().unwrap());
+
+    // Same settings LiveRun::start gives a room.
+    let mut ca = LiveConfig::new("Glizzy", room_deck(0));
+    ca.peer = Some(ab);
+    ca.start_on_air = true;
+    ca.autoplay = true;
+    let mut cb = LiveConfig::new("Julio", room_deck(1));
+    cb.peer = Some(aa);
+    let (ha, hb) = (Arc::new(AudioFifo::new(48_000 * 10)), Arc::new(AudioFifo::new(48_000 * 10)));
+    ca.sink = Some(ha.clone());
+    cb.sink = Some(hb.clone());
+
+    let (a, b) = (Arc::new(LiveControls::default()), Arc::new(LiveControls::default()));
+    let (a2, b2) = (a.clone(), b.clone());
+    let ja = thread::spawn(move || run_live(ca, sa, a2));
+    let jb = thread::spawn(move || run_live(cb, sb, b2));
+
+    // The opener's deck is playing on air; Julio hears it and is cued, not playing.
+    let st = wait_for(&b, 25, |s| s.partner_on_air && s.partner_beat.is_some());
+    assert!(st.partner_on_air, "Glizzy on air: {st:?}");
+    let da = a.status().deck.expect("Glizzy has a deck");
+    assert!(da.playing && da.title.contains("Groove"), "{da:?}");
+    let db = st.deck.expect("Julio has a deck");
+    assert!(!db.playing && db.title.contains("Bells"), "{db:?}");
+
+    // Julio plays and syncs to what he hears.
+    b.send(Cmd::DeckPlayPause);
+    b.send(Cmd::SyncToggle);
+    let st = wait_for(&b, 20, |s| {
+        s.deck
+            .as_ref()
+            .map(|d| d.playing && d.sync && d.sync_err_ms.map(|e| e.abs() < 3.0).unwrap_or(false))
+            .unwrap_or(false)
+    });
+    let d = st.deck.expect("deck");
+    assert!(d.playing && d.sync, "Julio synced: {d:?}");
+
+    // TAKE OVER: Julio goes on air, Glizzy comes off.
+    b.send(Cmd::TakeOver);
+    let st = wait_for(&b, 15, |s| s.on_air);
+    assert!(st.on_air, "Julio took over: {st:?}");
+    let st = wait_for(&a, 15, |s| !s.on_air && s.partner_on_air);
+    assert!(!st.on_air && st.partner_on_air, "Glizzy handed over: {st:?}");
+
+    // Live test, 2026-10-03: after taking over, Julio heard nothing. Now the new
+    // on-air DJ hears his own deck, and each fader/slider moves its own side.
+    let julio_own = heard(&b, &hb, 1.0, 0.0);
+    let julio_all = heard(&b, &hb, 1.0, 1.0);
+    let julio_none = heard(&b, &hb, 0.0, 0.0);
+    // His fader is his channel fader: it also sets what Glizzy gets. Back up.
+    b.set_fader(1.0);
+    // Glizzy, now cueing, still hears his own deck and Julio on air.
+    let glizzy_own = heard(&a, &ha, 1.0, 0.0);
+    let glizzy_julio = heard(&a, &ha, 0.0, 1.0);
+    eprintln!(
+        "after takeover: Julio own {julio_own:.3} all {julio_all:.3} none {julio_none:.4}; \
+         Glizzy own {glizzy_own:.3} hears Julio {glizzy_julio:.3}"
+    );
+    assert!(julio_own > 0.05, "Julio hears his own deck on air: {julio_own:.3}");
+    assert!(julio_none < 0.01, "both sliders down is silence: {julio_none:.4}");
+    assert!(glizzy_own > 0.05, "Glizzy hears his own deck while cueing: {glizzy_own:.3}");
+    assert!(glizzy_julio > 0.05, "Glizzy hears Julio on air: {glizzy_julio:.3}");
+    // Both waveforms keep moving on each screen (yours is drawn after your fader).
+    a.set_fader(1.0);
+    thread::sleep(Duration::from_secs(1));
+    let a_cols = a.scope_since(0);
+    let recent = &a_cols.cols[a_cols.cols.len().saturating_sub(100)..];
+    assert!(recent.iter().any(|c| c.you[0] > 30), "Glizzy's own waveform still draws");
+    assert!(recent.iter().any(|c| c.partner[0] > 30), "Julio's waveform draws on Glizzy's screen");
+
+    a.stop();
+    b.stop();
+    ja.join().unwrap().unwrap();
+    jb.join().unwrap().unwrap();
+}

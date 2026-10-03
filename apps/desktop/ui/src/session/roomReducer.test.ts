@@ -107,3 +107,27 @@ describe('roomReducer', () => {
     expect(s.createError).toBeNull();
   });
 });
+
+describe('remembered devices', () => {
+  const found = (preferred?: { inputId?: string; outputId?: string }): RoomAction => ({
+    type: 'devicesFound',
+    inputs: [
+      { id: 'test-music-groove', label: 'Test music: Groove', detail: '' },
+      { id: 'mic', label: 'Mic', detail: '' },
+    ],
+    outputs: [
+      { id: 'speakers', label: 'Speakers', detail: 'System default' },
+      { id: 'jack', label: 'Realtek HD Audio 2nd output', detail: 'Usually the headphone jack' },
+    ],
+    preferred,
+  });
+  const fresh = () => run(initialRoom({ name: 'Glizzy', city: '' }), { type: 'entered', code: 'K7QX-M2PD', isHost: true });
+  it("picks last time's headphones when they are still plugged in", () => {
+    const s = run(fresh(), found({ outputId: 'jack' }));
+    expect(s.outputId).toBe('jack');
+    expect(s.inputId).toBe('test-music-groove');
+  });
+  it('falls back to the default when that device is gone', () => {
+    expect(run(fresh(), found({ outputId: 'usb-interface' })).outputId).toBe('speakers');
+  });
+});

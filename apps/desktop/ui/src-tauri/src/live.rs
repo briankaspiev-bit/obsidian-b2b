@@ -2,6 +2,8 @@
 //! and the chosen headphones to the engine's live session (`obsidian-live`).
 //! From here on TAKE OVER, levels and link health come from the engine.
 //!
+//! With "Test music" picked (no mixer) the room plays it on the built-in deck.
+//!
 //! Practice is the same set against the engine's ghost DJ over a simulated
 //! long-distance link, played on the built-in deck.
 
@@ -33,6 +35,20 @@ pub enum Source {
         title: String,
         program: Arc<Vec<f32>>,
     },
+}
+
+impl Source {
+    /// What a live room plays: the Booth Check input, except "Test music" (no
+    /// mixer), which goes on the built-in deck so you can play, sync and fade it.
+    pub fn for_room(capture: Capture) -> Source {
+        match capture.test_music {
+            Some(i) => {
+                let (title, program) = devices::test_track(i);
+                Source::Deck { title, program }
+            }
+            None => Source::Capture(capture),
+        }
+    }
 }
 
 pub struct LiveRun {
@@ -148,6 +164,8 @@ impl LiveRun {
         cfg.sink = Some(playback.sink.clone());
         cfg.sink_latency_ms = OUTPUT_TARGET_MS + 10.0;
         cfg.start_on_air = s.start_on_air;
+        // On a deck, whoever opens the set is already playing; the other DJ cues up.
+        cfg.autoplay = s.start_on_air;
         cfg.record_dir = s.record_dir.clone();
         let ctl = Arc::new(LiveControls::default());
         let c2 = ctl.clone();

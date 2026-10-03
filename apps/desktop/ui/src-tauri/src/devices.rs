@@ -38,15 +38,23 @@ fn entries(names: Vec<String>, default: Option<String>) -> Vec<AudioDevice> {
         .into_iter()
         .map(|n| {
             let is_default = Some(&n) == default.as_ref();
+            // Realtek laptops name the headphone jack "... 2nd output".
+            let jack = n.to_lowercase().contains("2nd output");
+            let detail = match (is_default, jack) {
+                (true, true) => "System default · Usually the headphone jack",
+                (true, false) => "System default",
+                (false, true) => "Usually the headphone jack",
+                (false, false) => "",
+            };
             AudioDevice {
                 id: n.clone(),
                 label: n,
-                detail: if is_default { "System default".into() } else { String::new() },
+                detail: detail.into(),
             }
         })
         .collect();
     // Default first, so the UI's "first device" default is the system one.
-    v.sort_by_key(|d| d.detail.is_empty());
+    v.sort_by_key(|d| !d.detail.starts_with("System default"));
     v
 }
 
@@ -73,7 +81,7 @@ pub fn list() -> DeviceList {
             AudioDevice {
                 id: id.into(),
                 label: label.into(),
-                detail: "No mixer needed".into(),
+                detail: "No mixer: mix it on the built-in deck".into(),
             },
         );
     }
@@ -93,6 +101,9 @@ pub fn to_dbfs(amp: f32) -> f32 {
 pub struct Capture {
     pub fifo: Arc<AudioFifo>,
     pub rate: u32,
+    /// Which built-in track, when this is a "Test music" input. A live set plays
+    /// it on the built-in deck instead (play, sync, volume, like Practice).
+    pub test_music: Option<usize>,
     peak: Peak,
     _stop: mpsc::Sender<()>,
 }
@@ -145,12 +156,13 @@ where
 
 /// Opens `id` (a device name, or [`SYSTEM_AUDIO_ID`]) into a fresh FIFO.
 pub fn open_input(id: &str) -> Result<Capture> {
+    let test_music = TEST_MUSIC.iter().position(|(t, _)| *t == id);
     let id = id.to_owned();
     let fifo = Arc::new(AudioFifo::new(96_000));
     let f = fifo.clone();
     let ((rate, peak), stop) = hold("capture", move || -> Result<(Box<dyn std::any::Any>, (u32, Peak))> {
-        if let Some(i) = TEST_MUSIC.iter().position(|(t, _)| *t == id) {
-            let s = TestMusic::start(test_track(i), f);
+        if let Some(i) = test_music {
+            let s = TestMusic::start(test_program(i), f);
             let peak = Peak::System(s.peak_micro.clone());
             return Ok((Box::new(s), (48_000, peak)));
         }
@@ -168,7 +180,13 @@ pub fn open_input(id: &str) -> Result<Capture> {
         let parts = (s.rate, Peak::Device(s.stats.clone()));
         Ok((Box::new(s), parts))
     })?;
-    Ok(Capture { fifo, rate, peak, _stop: stop })
+    Ok(Capture {
+        fifo,
+        rate,
+        test_music,
+        peak,
+        _stop: stop,
+    })
 }
 
 /// Opens headphones `id` with a small FIFO for the engine to fill.
@@ -183,7 +201,13 @@ pub fn open_output(id: Option<&str>, target_ms: f64) -> Result<Playback> {
     Ok(Playback { sink, _stop: stop })
 }
 
-fn test_track(i: usize) -> Arc<Vec<f32>> {
+/// The built-in track behind "Test music" input `i`, with its name.
+pub fn test_track(i: usize) -> (String, Arc<Vec<f32>>) {
+    let name = TEST_MUSIC[i].1.trim_start_matches("Test music: ").to_owned();
+    (format!("Built-in: {name} (125 BPM)"), test_program(i))
+}
+
+fn test_program(i: usize) -> Arc<Vec<f32>> {
     if i == 0 {
         Arc::new(obsidian_testaudio::track(&obsidian_testaudio::dj_b()))
     } else {
@@ -249,6 +273,13 @@ mod tests {
         let v = entries(vec!["A".into(), "B".into()], Some("B".into()));
         assert_eq!(v[0].id, "B");
         assert_eq!(v[0].detail, "System default");
+        // The headphone jack is labelled but doesn't jump ahead of the default.
+        let v = entries(
+            vec!["Realtek HD Audio 2nd output".into(), "Speakers (Realtek(R) Audio)".into()],
+            Some("Speakers (Realtek(R) Audio)".into()),
+        );
+        assert_eq!(v[0].label, "Speakers (Realtek(R) Audio)");
+        assert_eq!(v[1].detail, "Usually the headphone jack");
     }
 
     #[test]
@@ -264,9 +295,12 @@ mod tests {
         for (id, _) in TEST_MUSIC {
             assert!(list.inputs.iter().any(|d| d.id == id), "{id} offered");
             let c = open_input(id).unwrap();
+            let t0 = std::time::Instant::now();
             std::thread::sleep(std::time::Duration::from_millis(500));
-            let frames = c.fifo.len_frames();
-            assert!((19_000..=30_000).contains(&frames), "{id}: {frames} frames in 0.5 s");
+            // Timed, not assumed: a busy CI runner can oversleep.
+            let (frames, secs) = (c.fifo.len_frames(), t0.elapsed().as_secs_f64());
+            let rate = frames as f64 / secs;
+            assert!((36_000.0..=60_000.0).contains(&rate), "{id}: {frames} frames in {secs:.2} s");
             assert!(c.level_dbfs() > -30.0, "{id}: level {}", c.level_dbfs());
         }
     }
