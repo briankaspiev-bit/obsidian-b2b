@@ -57,6 +57,9 @@ In **Booth Check**, pick your audio interface or mixer as the input, and your
 headphones as the output. Capturing the laptop's own sound (instead of a mixer) only
 works on Windows for now.
 
+**No mixer?** Pick **Test music: Groove** (or **Test music: Bells**) as the input. The
+app plays its own built-in music to the other DJ, so you can test without any gear.
+
 ## Updating
 
 Download the new dmg from the same page, drag it into Applications again, and choose

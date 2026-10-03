@@ -15,6 +15,10 @@ use serde::Serialize;
 /// (DJ software, a browser...) except Obsidian itself. Windows only.
 pub const SYSTEM_AUDIO_ID: &str = "system-audio";
 
+/// "What you send" choices for testing without a mixer: built-in music, looped,
+/// sent exactly as a mixer would be. Two of them so each DJ can pick a different one.
+pub const TEST_MUSIC: [(&str, &str); 2] = [("test-music-groove", "Test music: Groove"), ("test-music-bells", "Test music: Bells")];
+
 /// Matches the UI's AudioDevice.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct AudioDevice {
@@ -62,6 +66,17 @@ pub fn list() -> DeviceList {
             },
         );
     }
+    // First, so a tester without gear sends music (not their laptop mic) by default.
+    for (i, (id, label)) in TEST_MUSIC.into_iter().enumerate() {
+        out.inputs.insert(
+            i,
+            AudioDevice {
+                id: id.into(),
+                label: label.into(),
+                detail: "No mixer needed".into(),
+            },
+        );
+    }
     out
 }
 
@@ -85,7 +100,7 @@ pub struct Capture {
 /// Where the input's latest peak (× 1e6) is kept.
 enum Peak {
     Device(Arc<device::StreamStats>),
-    #[cfg_attr(not(windows), allow(dead_code))]
+    /// Laptop audio or test music: peak × 1e6, kept by whoever fills the FIFO.
     System(Arc<AtomicU64>),
 }
 
@@ -134,6 +149,11 @@ pub fn open_input(id: &str) -> Result<Capture> {
     let fifo = Arc::new(AudioFifo::new(96_000));
     let f = fifo.clone();
     let ((rate, peak), stop) = hold("capture", move || -> Result<(Box<dyn std::any::Any>, (u32, Peak))> {
+        if let Some(i) = TEST_MUSIC.iter().position(|(t, _)| *t == id) {
+            let s = TestMusic::start(test_track(i), f);
+            let peak = Peak::System(s.peak_micro.clone());
+            return Ok((Box::new(s), (48_000, peak)));
+        }
         if id == SYSTEM_AUDIO_ID {
             #[cfg(windows)]
             {
@@ -163,6 +183,57 @@ pub fn open_output(id: Option<&str>, target_ms: f64) -> Result<Playback> {
     Ok(Playback { sink, _stop: stop })
 }
 
+fn test_track(i: usize) -> Arc<Vec<f32>> {
+    if i == 0 {
+        Arc::new(obsidian_testaudio::track(&obsidian_testaudio::dj_b()))
+    } else {
+        crate::live::ghost_playlist().swap_remove(0).1
+    }
+}
+
+/// Plays a track into a FIFO in real time, looped, like a sound card would.
+struct TestMusic {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    peak_micro: Arc<AtomicU64>,
+}
+
+impl TestMusic {
+    fn start(track: Arc<Vec<f32>>, fifo: Arc<AudioFifo>) -> TestMusic {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let peak_micro = Arc::new(AtomicU64::new(0));
+        let (st, pk) = (stop.clone(), peak_micro.clone());
+        let _ = thread::Builder::new().name("test-music".into()).spawn(move || {
+            const BLOCK: usize = 480; // 10 ms of 48 kHz frames
+            let start = std::time::Instant::now();
+            let mut pos = 0usize;
+            let mut sent = 0u64;
+            while !st.load(Ordering::Relaxed) {
+                let mut block = Vec::with_capacity(BLOCK * 2);
+                while block.len() < BLOCK * 2 {
+                    let take = (BLOCK * 2 - block.len()).min(track.len() - pos);
+                    block.extend_from_slice(&track[pos..pos + take]);
+                    pos = (pos + take) % track.len();
+                }
+                let peak = block.iter().fold(0f32, |m, v| m.max(v.abs()));
+                pk.store((peak * 1e6) as u64, Ordering::Relaxed);
+                fifo.push(&block);
+                sent += BLOCK as u64;
+                let due = start + std::time::Duration::from_micros(sent * 1_000_000 / 48_000);
+                if let Some(wait) = due.checked_duration_since(std::time::Instant::now()) {
+                    thread::sleep(wait);
+                }
+            }
+        });
+        TestMusic { stop, peak_micro }
+    }
+}
+
+impl Drop for TestMusic {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +255,19 @@ mod tests {
     fn listing_never_panics_without_devices() {
         // CI machines have no sound card; an empty list is fine.
         let _ = list();
+    }
+
+    #[test]
+    fn test_music_plays_in_real_time_with_a_level() {
+        let list = list();
+        assert_eq!(list.inputs[0].id, TEST_MUSIC[0].0, "test music is the default input");
+        for (id, _) in TEST_MUSIC {
+            assert!(list.inputs.iter().any(|d| d.id == id), "{id} offered");
+            let c = open_input(id).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let frames = c.fifo.len_frames();
+            assert!((19_000..=30_000).contains(&frames), "{id}: {frames} frames in 0.5 s");
+            assert!(c.level_dbfs() > -30.0, "{id}: level {}", c.level_dbfs());
+        }
     }
 }

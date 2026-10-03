@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LevelMeter } from '../live-session/LevelMeter';
 import { SessionHeader } from '../live-session/SessionHeader';
 import type { CheckStep, RoomState } from '../session/types';
+import { readyAllowed } from '../session/roomReducer';
 import { useEngine, useRoomState } from '../session/useSession';
 
 /**
@@ -37,7 +38,7 @@ export function BoothCheckScreen() {
             <DeviceField
               id="input"
               label="What you send"
-              hint="Your mixer's REC or BOOTH out"
+              hint="Your mixer's REC or BOOTH out. No mixer? Pick Test music"
               devices={room.inputs}
               value={room.inputId}
               onChange={engine.selectInput}
@@ -253,16 +254,19 @@ function CheckList({ room }: { room: RoomState }) {
 
 function ReadyBar({ room, remoteName }: { room: RoomState; remoteName: string }) {
   const engine = useEngine();
-  const passed = room.check.status === 'passed';
+  const passed = readyAllowed(room.check);
+  const warnings = passed && room.check.status === 'attention';
   const remoteReady = room.remotePresence === 'ready';
 
   let line: string;
   if (room.remotePresence === 'waiting') line = `Waiting for ${remoteName} to join`;
-  else if (room.check.status === 'attention') line = 'Sort out the steps marked yellow, then run the check again.';
+  else if (room.check.status === 'attention' && !passed)
+    line = 'Sort out the steps marked yellow, then run the check again.';
   else if (!passed) line = 'Run the booth check first. It takes a few seconds.';
   else if (room.localReady && !remoteReady) line = `Waiting for ${remoteName} to press ready`;
   else if (!room.localReady && remoteReady) line = `${remoteName} is ready. Press ready when you are.`;
   else if (room.localReady && remoteReady) line = 'Both ready. Starting…';
+  else if (warnings) line = 'You can go live. The yellow steps are warnings, the set may sound rougher.';
   else line = 'The session starts when you both press ready.';
 
   return (
