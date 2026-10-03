@@ -73,7 +73,7 @@ pub fn list() -> DeviceList {
             AudioDevice {
                 id: id.into(),
                 label: label.into(),
-                detail: "No mixer needed".into(),
+                detail: "No mixer: mix it on the built-in deck".into(),
             },
         );
     }
@@ -93,6 +93,9 @@ pub fn to_dbfs(amp: f32) -> f32 {
 pub struct Capture {
     pub fifo: Arc<AudioFifo>,
     pub rate: u32,
+    /// Which built-in track, when this is a "Test music" input. A live set plays
+    /// it on the built-in deck instead (play, sync, volume, like Practice).
+    pub test_music: Option<usize>,
     peak: Peak,
     _stop: mpsc::Sender<()>,
 }
@@ -145,12 +148,13 @@ where
 
 /// Opens `id` (a device name, or [`SYSTEM_AUDIO_ID`]) into a fresh FIFO.
 pub fn open_input(id: &str) -> Result<Capture> {
+    let test_music = TEST_MUSIC.iter().position(|(t, _)| *t == id);
     let id = id.to_owned();
     let fifo = Arc::new(AudioFifo::new(96_000));
     let f = fifo.clone();
     let ((rate, peak), stop) = hold("capture", move || -> Result<(Box<dyn std::any::Any>, (u32, Peak))> {
-        if let Some(i) = TEST_MUSIC.iter().position(|(t, _)| *t == id) {
-            let s = TestMusic::start(test_track(i), f);
+        if let Some(i) = test_music {
+            let s = TestMusic::start(test_program(i), f);
             let peak = Peak::System(s.peak_micro.clone());
             return Ok((Box::new(s), (48_000, peak)));
         }
@@ -168,7 +172,13 @@ pub fn open_input(id: &str) -> Result<Capture> {
         let parts = (s.rate, Peak::Device(s.stats.clone()));
         Ok((Box::new(s), parts))
     })?;
-    Ok(Capture { fifo, rate, peak, _stop: stop })
+    Ok(Capture {
+        fifo,
+        rate,
+        test_music,
+        peak,
+        _stop: stop,
+    })
 }
 
 /// Opens headphones `id` with a small FIFO for the engine to fill.
@@ -183,7 +193,13 @@ pub fn open_output(id: Option<&str>, target_ms: f64) -> Result<Playback> {
     Ok(Playback { sink, _stop: stop })
 }
 
-fn test_track(i: usize) -> Arc<Vec<f32>> {
+/// The built-in track behind "Test music" input `i`, with its name.
+pub fn test_track(i: usize) -> (String, Arc<Vec<f32>>) {
+    let name = TEST_MUSIC[i].1.trim_start_matches("Test music: ").to_owned();
+    (format!("Built-in: {name} (125 BPM)"), test_program(i))
+}
+
+fn test_program(i: usize) -> Arc<Vec<f32>> {
     if i == 0 {
         Arc::new(obsidian_testaudio::track(&obsidian_testaudio::dj_b()))
     } else {

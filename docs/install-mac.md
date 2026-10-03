@@ -58,7 +58,8 @@ headphones as the output. Capturing the laptop's own sound (instead of a mixer) 
 works on Windows for now.
 
 **No mixer?** Pick **Test music: Groove** (or **Test music: Bells**) as the input. The
-app plays its own built-in music to the other DJ, so you can test without any gear.
+app puts its built-in music on a deck you mix like in Practice: **P** play, **S**
+sync, **↑↓** your volume, **←→** the other DJ in your ears, **Space** to take over.
 
 ## Updating
 
