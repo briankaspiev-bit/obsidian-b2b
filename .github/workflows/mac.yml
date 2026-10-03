@@ -56,7 +56,8 @@ jobs:
         run: |
           app=$(ls -d macos/*.app | head -1)
           bin="$app/Contents/MacOS/$(defaults read "$PWD/$app/Contents/Info" CFBundleExecutable)"
-          lipo -archs "$bin" | tee /dev/stderr | grep -q 'x86_64 arm64'
+          archs=$(lipo -archs "$bin"); echo "architectures: $archs"
+          [[ $archs == *x86_64* && $archs == *arm64* ]]
           codesign --verify --verbose "$app"
           plutil -extract NSMicrophoneUsageDescription raw "$app/Contents/Info.plist"
           mkdir -p "$GITHUB_WORKSPACE/dist"
