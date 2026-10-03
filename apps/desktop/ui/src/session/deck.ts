@@ -45,6 +45,8 @@ export interface DeckInfo {
   partnerOnAir: boolean;
   fader: number;
   partnerVolume: number;
+  /** The other DJ's own fader (0..1), so both levels show during a handoff. */
+  partnerFader?: number;
   /** Practice: what the ghost DJ is doing. */
   ghostSays: string | null;
   /** Wi-Fi shield on for what you hear (your connection drops sound). */

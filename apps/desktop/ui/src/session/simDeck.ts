@@ -204,6 +204,7 @@ export class SimDeck {
       partnerOnAir: air.partner,
       fader: this.fader,
       partnerVolume: this.partnerVolume,
+      partnerFader: 1,
       ghostSays: this.partnerSays,
     };
     this.feed.update(info, this.startedAt + now);

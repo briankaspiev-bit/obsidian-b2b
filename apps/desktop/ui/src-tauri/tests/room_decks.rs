@@ -191,6 +191,13 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
         1.0,
         "Julio's blend of Glizzy passed to Glizzy"
     );
+    // Both levels show on both screens, so they can blend together.
+    let st = wait_for(&b, 5, |s| (s.partner_fader - 0.4).abs() < 0.02);
+    assert!(
+        (st.partner_fader - 0.4).abs() < 0.02,
+        "Julio sees Glizzy's fader: {}",
+        st.partner_fader
+    );
     // On air again, Glizzy brings himself up and can blend Julio out.
     a.set_fader(1.0);
     a.set_partner_volume(0.0);
@@ -200,6 +207,11 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
         (st.fader, st.partner_volume),
         (1.0, 0.0),
         "the on-air DJ sets the blend"
+    );
+    let st = wait_for(&b, 5, |s| s.partner_fader == 1.0);
+    assert_eq!(
+        st.partner_fader, 1.0,
+        "Julio sees Glizzy bring his fader up"
     );
 
     a.stop();

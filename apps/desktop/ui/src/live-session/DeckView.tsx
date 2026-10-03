@@ -291,14 +291,14 @@ function Slider({
   value: number;
   max: number;
   onChange: (v: number) => void;
-  keys: string;
+  keys?: string;
   disabled?: boolean;
   title?: string;
 }) {
   return (
     <label className="deck__slider" title={title}>
       <span className="deck__slider-label">
-        {label} <Key k={keys} />
+        {label} {keys && <Key k={keys} />}
       </span>
       <input
         type="range"
@@ -409,6 +409,14 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
             onChange={(value) => onAction({ kind: 'partnerVolume', value })}
             disabled={!info?.onAir}
             title={info?.onAir ? `Blend ${partnerName}'s song in or out` : `${partnerName} is on air, so they set the blend. Take over to set it yourself.`}
+          />
+          <Slider
+            label={`${partnerName.toUpperCase()}'S FADER`}
+            value={info?.partnerFader ?? 1}
+            max={1}
+            onChange={() => {}}
+            disabled
+            title={`Where ${partnerName} has their own fader, so you can blend together`}
           />
         </div>
         {info?.ghostSays && (

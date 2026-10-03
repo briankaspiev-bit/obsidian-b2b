@@ -126,6 +126,8 @@ pub struct LiveStatus {
     pub reanchors: usize,
     pub fader: f32,
     pub partner_volume: f32,
+    /// The partner's own fader (1 = full), as they last reported it.
+    pub partner_fader: f32,
     pub local_peak: f32,
     pub partner_peak: f32,
     pub partner_bpm: Option<f64>,
@@ -300,6 +302,8 @@ struct Remote {
     state: Option<(u32, bool, u32, String)>,
     /// How loud the partner, while on air, had our song in the mix (1 = as sent).
     partner_blend: f32,
+    /// The partner's own fader (1 = full).
+    partner_fader: f32,
     partner_ready: bool,
     left: bool,
 }
@@ -372,6 +376,7 @@ pub fn run_live(
         long_gaps: VecDeque::new(),
         partner_shield: false,
         partner_blend: 1.0,
+        partner_fader: 1.0,
         stream_id: None,
         generation: 0,
         addr: cfg.peer,
@@ -468,7 +473,9 @@ pub fn run_live(
                             tiebreak,
                             name,
                             blend,
+                            fader,
                         } => {
+                            r.partner_fader = fader as f32 / 100.0;
                             if on_air {
                                 r.partner_blend = blend as f32 / 100.0;
                             }
@@ -773,6 +780,7 @@ pub fn run_live(
                     } else {
                         100
                     },
+                    fader: (ctl.fader() * 100.0).round().clamp(0.0, 100.0) as u8,
                 }
                 .encode(&mut buf);
                 let _ = sock.send_to(&buf, peer);
@@ -1081,6 +1089,7 @@ pub fn run_live(
                     .count(),
                 fader,
                 partner_volume: pvol,
+                partner_fader: r.partner_fader,
                 local_peak,
                 partner_peak: remote_peak,
                 partner_bpm,

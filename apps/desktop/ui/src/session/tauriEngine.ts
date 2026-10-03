@@ -81,6 +81,7 @@ function deckInfo(st: LiveStatus): DeckInfo {
     partnerOnAir: st.partner_on_air,
     fader: st.fader,
     partnerVolume: st.partner_volume,
+    partnerFader: st.partner_fader,
     ghostSays: st.ghost_says,
     shield: st.shield ?? false,
     partnerShield: st.partner_shield ?? false,
