@@ -99,8 +99,17 @@ pub enum Packet {
         /// The sender's own fader, in percent (0..=100), so each DJ sees both
         /// levels during a handoff. Trails `blend`; older builds read as 100.
         fader: u8,
+        /// The sender, off air, asks for the booth: the id of that ask (1..=127),
+        /// or 0 when not asking. Trails `fader`; older builds read as 0.
+        ask: u8,
+        /// The sender's answer to our latest ask: its id, with the top bit set
+        /// for "go ahead" and clear for "not yet"; 0 = no answer.
+        answer: u8,
     },
 }
+
+/// Bit set in `State::answer` when the ask is granted.
+pub const ANSWER_GRANT: u8 = 0x80;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeError {
@@ -213,6 +222,8 @@ impl Packet {
                 name,
                 blend,
                 fader,
+                ask,
+                answer,
             } => {
                 out.push(KIND_STATE);
                 out.extend_from_slice(&epoch.to_be_bytes());
@@ -223,6 +234,8 @@ impl Packet {
                 out.extend_from_slice(n);
                 out.push(*blend);
                 out.push(*fader);
+                out.push(*ask);
+                out.push(*answer);
             }
         }
     }
@@ -276,6 +289,8 @@ impl Packet {
                 let name = String::from_utf8_lossy(r.take(n)?).into_owned();
                 let blend = r.u8().unwrap_or(100);
                 let fader = r.u8().unwrap_or(100);
+                let ask = r.u8().unwrap_or(0);
+                let answer = r.u8().unwrap_or(0);
                 Ok(Packet::State {
                     epoch,
                     on_air: flags & 1 != 0,
@@ -285,6 +300,8 @@ impl Packet {
                     name,
                     blend,
                     fader,
+                    ask,
+                    answer,
                 })
             }
             k => Err(DecodeError::BadKind(k)),
@@ -340,6 +357,8 @@ mod tests {
                 name: "Brian".into(),
                 blend: 40,
                 fader: 75,
+                ask: 5,
+                answer: 3 | ANSWER_GRANT,
             },
         ] {
             p.encode(&mut buf);

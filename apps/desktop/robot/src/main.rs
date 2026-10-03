@@ -273,6 +273,8 @@ fn drive(ctl: &LiveControls, minutes: f64, cue_s: f64) -> Vec<Sample> {
     let mut samples = Vec::new();
     let mut peak = 0f32;
     let mut next = start + Duration::from_secs(1);
+    let mut asked_since: Option<f64> = None;
+    let mut retry_at = 0.0;
     while Instant::now() < end {
         thread::sleep(Duration::from_millis(100));
         let st = ctl.status();
@@ -286,6 +288,18 @@ fn drive(ctl: &LiveControls, minutes: f64, cue_s: f64) -> Vec<Sample> {
         if st.on_air {
             off_air_since = None;
             stage = 0;
+            // You ask for the booth: like a DJ finishing a phrase, the robot lets
+            // you in after a couple of seconds.
+            if st.partner_ask_ms_left.is_some() {
+                let since = *asked_since.get_or_insert(t);
+                if t - since >= 2.0 {
+                    ctl.send(Cmd::AnswerAsk(true));
+                    say("you asked for the booth: letting you in");
+                    asked_since = None;
+                }
+            } else {
+                asked_since = None;
+            }
             // A takeover keeps the robot's song at the level you had it blended
             // to; like a DJ, it then brings its fader up over a few seconds.
             if st.fader < 1.0 {
@@ -306,9 +320,13 @@ fn drive(ctl: &LiveControls, minutes: f64, cue_s: f64) -> Vec<Sample> {
                 ctl.send(Cmd::SetReady(true));
                 say("READY");
                 stage = 2;
-            } else if stage == 2 && off >= cue_s {
+            } else if stage == 3 && st.ask_denied {
+                say("you said not yet: the robot asks again in 20 s");
+                retry_at = t + 20.0;
+                stage = 2;
+            } else if stage == 2 && off >= cue_s && t >= retry_at {
                 ctl.send(Cmd::TakeOver);
-                say("TAKE OVER: the robot is on air; take it back with SPACE");
+                say("asking for the booth: let it in with SPACE, or N for not yet (it goes on air in 10 s anyway)");
                 took_over = true;
                 stage = 3;
             }
@@ -444,7 +462,7 @@ fn summarize(a: &Args, relay: bool, booth: &BoothSeen, s: &[Sample], fin: &LiveS
     }
     let _ = writeln!(
         o,
-        "| Handoffs | robot took over {}× (confirmed in {}) · you took it back {}× |",
+        "| Handoffs | robot took over {}× (on air {} after asking) · you took it back {}× |",
         robot_takes.len(),
         robot_takes
             .iter()

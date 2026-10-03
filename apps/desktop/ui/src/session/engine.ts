@@ -56,7 +56,12 @@ export interface SessionEngine {
 
   markReady(): void;
   cancelReady(): void;
+  /** Off air: ask for the booth (in a live room the DJ on air answers). */
   takeOver(): void;
+  /** On air: answer the other DJ's ask (true = let them in now). */
+  answerAsk(grant: boolean): void;
+  /** Off air: take back your ask. */
+  cancelAsk(): void;
   /**
    * Only offered when the live DJ's connection is lost. Takes the mix at once,
    * with no handoff and no confirmation from the other side.

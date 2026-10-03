@@ -116,7 +116,10 @@ fn the_engine_takes_over_the_paired_sockets() {
     };
     wait("the guest to hear the host", &|| gc.status().partner_on_air);
     assert_eq!(gc.status().partner_name.as_deref(), Some("Val"));
+    // The guest asks for the booth and the host lets them in.
     gc.send(Cmd::TakeOver);
+    wait("the host to see the ask", &|| hc.status().partner_ask_ms_left.is_some());
+    hc.send(Cmd::AnswerAsk(true));
     wait("the host to see the handover", &|| hc.status().partner_on_air && !hc.status().on_air);
 
     hc.stop();

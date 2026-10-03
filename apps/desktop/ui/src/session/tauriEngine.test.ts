@@ -118,6 +118,8 @@ function fakeWorld() {
         publish();
         return ok(undefined);
       },
+      liveAnswerAsk: () => ok(undefined),
+      liveCancelAsk: () => ok(undefined),
       liveSetReady: (r: boolean) => {
         ready.set(h, r);
         publish();

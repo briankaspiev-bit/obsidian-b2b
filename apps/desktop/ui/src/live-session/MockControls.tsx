@@ -59,7 +59,7 @@ export function MockControls({ engine }: { engine: MockSessionEngine }) {
                 disabled={ended || remoteRole === 'onAir' || remoteRole === 'handoff'}
                 onClick={engine.remoteTakeOver}
               >
-                {remote.name} takes over
+                {remote.name} asks for the booth
               </button>
               <button
                 type="button"
