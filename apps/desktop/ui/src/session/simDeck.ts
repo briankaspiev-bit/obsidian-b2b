@@ -178,12 +178,9 @@ export class SimDeck {
   private publish() {
     const now = this.col * COLUMN_MS;
     const air = this.onAir();
-    // Same rules as the engine: a handoff brings both songs back to full, and
-    // only the DJ on air sets the blend.
-    if (this.wasOnAir !== null && air.you !== this.wasOnAir) {
-      this.partnerVolume = 1;
-      if (air.you) this.fader = 1;
-    }
+    // Same rules as the engine: a handoff resets the blend, and only the DJ on
+    // air sets it.
+    if (this.wasOnAir !== null && air.you !== this.wasOnAir) this.partnerVolume = 1;
     this.wasOnAir = air.you;
     if (!air.you) this.partnerVolume = 1;
     const deck: DeckStatus = {

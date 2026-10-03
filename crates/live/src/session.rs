@@ -298,6 +298,8 @@ struct Remote {
     addr: Option<SocketAddr>,
     last_packet_us: Option<i64>,
     state: Option<(u32, bool, u32, String)>,
+    /// How loud the partner, while on air, had our song in the mix (1 = as sent).
+    partner_blend: f32,
     partner_ready: bool,
     left: bool,
 }
@@ -369,6 +371,7 @@ pub fn run_live(
         last_seq: None,
         long_gaps: VecDeque::new(),
         partner_shield: false,
+        partner_blend: 1.0,
         stream_id: None,
         generation: 0,
         addr: cfg.peer,
@@ -464,7 +467,11 @@ pub fn run_live(
                             shield,
                             tiebreak,
                             name,
+                            blend,
                         } => {
+                            if on_air {
+                                r.partner_blend = blend as f32 / 100.0;
+                            }
                             r.partner_ready = ready;
                             r.partner_shield = shield;
                             r.state = Some((epoch, on_air, tiebreak, name));
@@ -761,6 +768,11 @@ pub fn run_live(
                     shield: want_shield,
                     tiebreak,
                     name: cfg.name.clone(),
+                    blend: if on_air {
+                        (ctl.partner_volume() * 100.0).round().clamp(0.0, 200.0) as u8
+                    } else {
+                        100
+                    },
                 }
                 .encode(&mut buf);
                 let _ = sock.send_to(&buf, peer);
@@ -771,14 +783,16 @@ pub fn run_live(
 
         // ---- handoff levels ----
         // A shared mixer: the DJ on air sets the blend (how loud the partner's
-        // song is). Every handoff brings both songs back to full, so whoever takes
-        // over is never left muted by an earlier blend.
+        // song is). On a handoff the blend passes to the new DJ: their fader takes
+        // the level their song was already playing at, so nothing jumps, and they
+        // bring it up themselves. The DJ going off air hears them as they set it.
         if on_air != was_on_air {
             was_on_air = on_air;
-            ctl.set_partner_volume(1.0);
             if on_air {
-                ctl.set_fader(1.0);
+                let blend = remote.lock().unwrap().partner_blend;
+                ctl.set_fader((ctl.fader() * blend).clamp(0.0, 1.0));
             }
+            ctl.set_partner_volume(1.0);
         }
         // Off air, the on-air song stays at full: only its DJ can turn it down.
         let pvol = if on_air { ctl.partner_volume() } else { 1.0 };

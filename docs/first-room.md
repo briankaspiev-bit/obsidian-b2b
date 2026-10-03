@@ -26,7 +26,7 @@ you hear your own deck and the other DJ together.
 | **P** | Play / pause your deck |
 | **S** | Sync your deck to the other DJ's beat |
 | **↑ ↓** | Your fader: your volume, for you **and** the other DJ |
-| **← →** | While you're on air: blend the other DJ's song in or out. Every takeover puts both songs back to full. |
+| **← →** | While you're on air: blend the other DJ's song in or out. When they take over, the blend passes to them: their song keeps playing at that level and they bring their fader up. |
 | **Space** | Take over (you go on air) |
 | **R** | Ready: tells the other DJ you're about to take over |
 

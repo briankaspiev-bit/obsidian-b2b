@@ -92,6 +92,13 @@ describe('deckWarning', () => {
     expect(deckWarning({ ...onAir, deck: { ...base.deck!, playing: false } }, 'Glizzy', 0)).toContain('Press P');
     expect(deckWarning({ ...onAir, fader: 0 }, 'Glizzy', 0)).toContain('Glizzy hears nothing from you');
   });
+  it('after a takeover at a low level, says to bring the fader up', () => {
+    const onAir = { ...base, onAir: true, partnerOnAir: false };
+    expect(deckWarning({ ...onAir, fader: 0.3 }, 'Glizzy', 0)).toBe(
+      "You're on air with your fader at 30%. Bring it up with ↑ when you're ready.",
+    );
+    expect(deckWarning({ ...onAir, fader: 1 }, 'Glizzy', 0)).toBeNull();
+  });
   it('flags an on-air partner who has been silent for 2 s', () => {
     expect(deckWarning(base, 'Glizzy', 1500)).toBeNull();
     expect(deckWarning(base, 'Glizzy', 2000)).toContain('Glizzy is on air but silent');

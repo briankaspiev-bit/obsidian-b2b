@@ -153,45 +153,52 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
     );
 
     // Robot DJ set, 2026-10-03: Brian blended the robot's song out while on air,
-    // and on its next turn it was still down. Now it's a shared mixer: the DJ on
-    // air sets the blend, and every handoff brings both songs back to full.
-    b.set_partner_volume(0.0); // Julio, on air, blends Glizzy's song out
+    // and on its next turn it was still down in his ears. Now it's a shared
+    // mixer: the DJ on air sets the blend; on a handoff the new DJ's fader takes
+    // the level their song was already playing at (no jump to full blast), and
+    // they bring it up themselves.
+    b.set_partner_volume(0.5); // Julio, on air, has Glizzy's song at half
     a.set_partner_volume(0.0); // Glizzy, off air, can't turn Julio's song down
-    a.set_fader(0.2); // and cues with his own fader low
+    a.set_fader(0.8); // and cues with his fader at 80%
     thread::sleep(Duration::from_millis(500));
     let st = a.status();
     assert_eq!(
         st.partner_volume, 1.0,
-        "off air, the on-air song stays at full"
+        "off air, the on-air song stays as its DJ set it"
     );
     assert!(
         heard(&a, &ha, 0.0, 0.0) > 0.05,
         "Glizzy still hears Julio on air"
     );
+    a.set_fader(0.8);
+    thread::sleep(Duration::from_millis(500));
     a.send(Cmd::TakeOver);
-    let st = wait_for(&a, 15, |s| s.on_air && s.fader == 1.0);
+    let st = wait_for(&a, 15, |s| s.on_air && s.fader < 0.8);
     assert!(st.on_air, "Glizzy took it back: {st:?}");
-    assert_eq!(
-        st.fader, 1.0,
-        "taking over brings your own song back to full"
+    assert!(
+        (st.fader - 0.4).abs() < 0.02,
+        "Glizzy's song stays at the level it was playing (80% x 50%): {}",
+        st.fader
     );
     assert_eq!(
         st.partner_volume, 1.0,
-        "Julio's song starts at full, Glizzy blends from there"
+        "Glizzy starts hearing Julio as Julio sends it"
     );
-    let st = wait_for(&b, 15, |s| !s.on_air && s.partner_volume == 1.0);
+    let st = wait_for(&b, 15, |s| !s.on_air);
     assert!(!st.on_air, "Julio handed over: {st:?}");
     assert_eq!(
         b.partner_volume(),
         1.0,
-        "Julio's blend of Glizzy reset on the handoff"
+        "Julio's blend of Glizzy passed to Glizzy"
     );
-    // On air again, Glizzy can blend Julio out.
+    // On air again, Glizzy brings himself up and can blend Julio out.
+    a.set_fader(1.0);
     a.set_partner_volume(0.0);
     thread::sleep(Duration::from_millis(300));
+    let st = a.status();
     assert_eq!(
-        a.status().partner_volume,
-        0.0,
+        (st.fader, st.partner_volume),
+        (1.0, 0.0),
         "the on-air DJ sets the blend"
     );
 
