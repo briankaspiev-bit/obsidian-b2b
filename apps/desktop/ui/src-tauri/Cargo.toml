@@ -3,8 +3,6 @@ name = "obsidian-desktop"
 version = "0.1.0"
 edition = "2021"
 publish = false
-# The app; src/bin/robot_dj.rs is a test tool, not shipped.
-default-run = "obsidian-desktop"
 description = "Obsidian desktop app: Tauri shell around the booth UI and the Rust booth engine."
 
 [lib]

@@ -46,14 +46,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/ui/src-tauri
+          workspaces: apps/desktop/robot
       # The app's screens are compiled into the shared library the robot uses.
       - run: npm ci && npm run build
       - name: Build the robot
-        working-directory: apps/desktop/ui/src-tauri
-        run: cargo build --release --bin robot_dj
+        working-directory: apps/desktop/robot
+        run: cargo build --release
       - name: Play the set
-        working-directory: apps/desktop/ui/src-tauri
+        working-directory: apps/desktop/robot
         env:
           OBSIDIAN_SERVER: ${{ vars.OBSIDIAN_SERVER }}
           CODE: ${{ inputs.code }}
