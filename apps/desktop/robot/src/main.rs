@@ -176,6 +176,21 @@ struct BoothSeen {
     loss_pct: Option<f64>,
 }
 
+/// The robot's profile picture: a small drawn robot head, sent in one piece the
+/// same way the app sends a DJ's photo.
+fn robot_photo() -> String {
+    const SVG: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 160'>\
+<rect width='160' height='160' fill='%23141419'/>\
+<line x1='80' y1='22' x2='80' y2='44' stroke='%23ff7a1a' stroke-width='5'/>\
+<circle cx='80' cy='20' r='8' fill='%23ff7a1a'/>\
+<rect x='34' y='44' width='92' height='80' rx='18' fill='%232a2a33' stroke='%23ff7a1a' stroke-width='4'/>\
+<circle cx='62' cy='80' r='11' fill='%2347d6ff'/><circle cx='98' cy='80' r='11' fill='%2347d6ff'/>\
+<rect x='58' y='102' width='44' height='8' rx='4' fill='%23ff7a1a'/>\
+<rect x='22' y='70' width='12' height='26' rx='5' fill='%23ff7a1a'/>\
+<rect x='126' y='70' width='12' height='26' rx='5' fill='%23ff7a1a'/></svg>";
+    serde_json::json!({ "t": "photo", "id": "robot-dj-1", "i": 0, "n": 1, "d": SVG }).to_string()
+}
+
 /// Keeps saying hello and ready until you press ready too.
 /// Returns when the set starts: the countdown from your ready, as on your screen.
 fn wait_for_ready(
@@ -205,6 +220,7 @@ fn wait_for_ready(
             // Repeats are harmless: the app keeps its countdown once both are ready.
             link.send_control(hello.to_string())
                 .map_err(|e| anyhow!(e))?;
+            link.send_control(robot_photo()).map_err(|e| anyhow!(e))?;
             link.send_control(ready.clone()).map_err(|e| anyhow!(e))?;
             link.set_local_level((BOOTH_LEVEL_DB, BOOTH_LEVEL_DB));
             next_send = Instant::now() + Duration::from_millis(500);
@@ -487,4 +503,16 @@ fn timeline_csv(s: &[Sample]) -> String {
         );
     }
     o
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_robot_photo_fits_one_control_message() {
+        let m = super::robot_photo();
+        let v: serde_json::Value = serde_json::from_str(&m).unwrap();
+        // The app takes pieces of up to 900 characters.
+        assert!(v["d"].as_str().unwrap().len() <= 900, "{}", m.len());
+        assert!(m.len() <= 1200);
+    }
 }

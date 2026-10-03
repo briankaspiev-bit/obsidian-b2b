@@ -3,6 +3,7 @@
 // unit-tested (peer.test.ts).
 
 import type { LinkStatus, LiveStatus, NetworkResult } from './bridge';
+import { MAX_PHOTO_CHUNKS, PHOTO_CHUNK, type PhotoChunk } from '../lib/photo';
 import type { CheckStepId, CheckStepStatus, Diagnostics, LinkState, NetworkQuality } from './types';
 
 /** Coordination messages. Both apps run the same reducers and apply each other's moves. */
@@ -14,9 +15,10 @@ export type PeerMessage =
   | { t: 'takeOver' }
   | { t: 'emergencyTakeOver' }
   | { t: 'end' }
-  | { t: 'leave' };
+  | { t: 'leave' }
+  | PhotoChunk;
 
-const KINDS = new Set(['hello', 'boothReady', 'markReady', 'cancelReady', 'takeOver', 'emergencyTakeOver', 'end', 'leave']);
+const KINDS = new Set(['hello', 'boothReady', 'markReady', 'cancelReady', 'takeOver', 'emergencyTakeOver', 'end', 'leave', 'photo']);
 
 /** Parses a message from the other app; anything unknown or malformed is dropped. */
 export function parsePeerMessage(json: string): PeerMessage | null {
@@ -27,6 +29,21 @@ export function parsePeerMessage(json: string): PeerMessage | null {
       const h = m as { name?: unknown; city?: unknown };
       if (typeof h.name !== 'string') return null;
       return { t: 'hello', name: h.name.slice(0, 64), city: typeof h.city === 'string' ? h.city.slice(0, 64) : '' };
+    }
+    if (m.t === 'photo') {
+      const p = m as Partial<PhotoChunk>;
+      const ok =
+        typeof p.id === 'string' &&
+        p.id.length <= 24 &&
+        Number.isInteger(p.n) &&
+        Number.isInteger(p.i) &&
+        p.n! >= 1 &&
+        p.n! <= MAX_PHOTO_CHUNKS &&
+        p.i! >= 0 &&
+        p.i! < p.n! &&
+        typeof p.d === 'string' &&
+        p.d.length <= PHOTO_CHUNK;
+      return ok ? { t: 'photo', id: p.id!, i: p.i!, n: p.n!, d: p.d! } : null;
     }
     if (m.t === 'boothReady') return { t: 'boothReady', ready: (m as { ready?: unknown }).ready === true };
     return m as PeerMessage;
