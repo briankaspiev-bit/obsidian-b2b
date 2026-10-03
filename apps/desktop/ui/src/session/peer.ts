@@ -74,9 +74,9 @@ export function evaluateCheck(
       id: 'roundTrip',
       status: slow || uneven ? 'attention' : 'ok',
       result: slow
-        ? `${ms(net.rttMs)}, ${net.lossPct.toFixed(1)}% lost. Try Ethernet`
+        ? `${ms(net.rttMs)}, ${net.lossPct.toFixed(1)}% lost. Rough line, Ethernet helps`
         : uneven
-          ? `${ms(net.rttMs)}, ${net.lossPct.toFixed(1)}% lost. Wi-Fi is uneven, Ethernet is better`
+          ? `${ms(net.rttMs)}, ${net.lossPct.toFixed(1)}% lost. Wi-Fi is uneven, Ethernet helps`
           : `${ms(net.rttMs)} round trip, ${net.lossPct.toFixed(1)}% lost`,
     },
     sendStep(localPeakDb, inputLabel),

@@ -66,12 +66,16 @@ pub fn list() -> DeviceList {
             },
         );
     }
-    for (id, label) in TEST_MUSIC {
-        out.inputs.push(AudioDevice {
-            id: id.into(),
-            label: label.into(),
-            detail: "No mixer needed".into(),
-        });
+    // First, so a tester without gear sends music (not their laptop mic) by default.
+    for (i, (id, label)) in TEST_MUSIC.into_iter().enumerate() {
+        out.inputs.insert(
+            i,
+            AudioDevice {
+                id: id.into(),
+                label: label.into(),
+                detail: "No mixer needed".into(),
+            },
+        );
     }
     out
 }
@@ -256,6 +260,7 @@ mod tests {
     #[test]
     fn test_music_plays_in_real_time_with_a_level() {
         let list = list();
+        assert_eq!(list.inputs[0].id, TEST_MUSIC[0].0, "test music is the default input");
         for (id, _) in TEST_MUSIC {
             assert!(list.inputs.iter().any(|d| d.id == id), "{id} offered");
             let c = open_input(id).unwrap();

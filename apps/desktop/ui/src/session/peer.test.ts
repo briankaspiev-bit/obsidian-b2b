@@ -48,10 +48,10 @@ describe('evaluateCheck', () => {
   });
   it('calls fast but uneven Wi-Fi a warning, and points testers without a mixer to Test music', () => {
     const wifi = evaluateCheck({ ...good, rttMs: 20, jitterMs: 45 }, { ...opts, localPeakDb: -70 });
-    expect(wifi[1]).toMatchObject({ status: 'attention', result: '20 ms, 0.0% lost. Wi-Fi is uneven, Ethernet is better' });
+    expect(wifi[1]).toMatchObject({ status: 'attention', result: '20 ms, 0.0% lost. Wi-Fi is uneven, Ethernet helps' });
     expect(wifi[2].result).toBe('No signal. No mixer? Pick Test music');
     const slow = evaluateCheck({ ...good, rttMs: 220, jitterMs: 45 }, opts);
-    expect(slow[1].result).toContain('Try Ethernet');
+    expect(slow[1].result).toContain('Rough line');
   });
 });
 
