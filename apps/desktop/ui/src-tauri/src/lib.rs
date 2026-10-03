@@ -253,6 +253,16 @@ fn live_take_over(booth: State<'_, Booth>) -> CmdResult<()> {
 }
 
 #[tauri::command]
+fn live_answer_ask(grant: bool, booth: State<'_, Booth>) -> CmdResult<()> {
+    with_live(&booth, |l| l.deck(obsidian_live::Cmd::AnswerAsk(grant)))
+}
+
+#[tauri::command]
+fn live_cancel_ask(booth: State<'_, Booth>) -> CmdResult<()> {
+    with_live(&booth, |l| l.deck(obsidian_live::Cmd::CancelAsk))
+}
+
+#[tauri::command]
 fn live_set_ready(ready: bool, booth: State<'_, Booth>) -> CmdResult<()> {
     with_live(&booth, |l| l.set_ready(ready))
 }
@@ -562,6 +572,8 @@ pub fn run() {
             run_network_test,
             start_live,
             live_take_over,
+            live_answer_ask,
+            live_cancel_ask,
             live_set_ready,
             live_set_fader,
             live_set_partner_volume,

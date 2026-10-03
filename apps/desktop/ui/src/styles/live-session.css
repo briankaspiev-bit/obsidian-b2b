@@ -1700,3 +1700,74 @@ button {
 .takeover[data-mode='take'] .takeover__ring-fill {
   stroke-width: 4;
 }
+
+/* The other DJ asks for the booth: still your lit disc, ringed in their blue,
+   one tap lets them in. "Not yet" sits quietly under it. */
+.takeover[data-mode='asked'] .takeover__face {
+  background: radial-gradient(circle at 50% 30%, #ff8a63, var(--on-air) 55%, #d9471d 100%);
+  border-color: var(--cue);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.28),
+    0 0 0 6px color-mix(in srgb, var(--cue) 30%, transparent),
+    0 0 50px -6px color-mix(in srgb, var(--cue) 70%, transparent);
+  animation: ask-pulse 1.2s ease-in-out infinite;
+}
+.takeover[data-mode='asked'] .takeover__label,
+.takeover[data-mode='asked'] .takeover__clock {
+  color: #1c0a03;
+  font-weight: 700;
+}
+.takeover[data-mode='asked'] .takeover__ring-track {
+  stroke: var(--cue);
+  stroke-width: 3;
+}
+.takeover[data-mode='asked'] .takeover__caption {
+  color: var(--cue);
+}
+/* You asked: a blue ring that waits for the answer. */
+.takeover[data-mode='asking'] .takeover__face {
+  border-color: var(--cue);
+}
+.takeover[data-mode='asking'] .takeover__label,
+.takeover[data-mode='asking'] .takeover__clock {
+  color: var(--cue);
+}
+.takeover[data-mode='asking'] .takeover__ring-track {
+  stroke: var(--cue);
+  stroke-width: 3;
+  stroke-dasharray: 6 6;
+}
+.takeover__not-yet {
+  margin-top: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.25));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+.takeover__not-yet:hover {
+  border-color: var(--cue);
+  color: var(--cue);
+}
+.takeover__not-yet kbd {
+  margin-left: 6px;
+  opacity: 0.6;
+  font-family: var(--font-mono);
+}
+@keyframes ask-pulse {
+  50% {
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.28),
+      0 0 0 10px color-mix(in srgb, var(--cue) 18%, transparent),
+      0 0 70px -6px color-mix(in srgb, var(--cue) 85%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .takeover[data-mode='asked'] .takeover__face {
+    animation: none;
+  }
+}

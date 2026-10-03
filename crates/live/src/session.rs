@@ -17,7 +17,7 @@ use obsidian_audio_io::{AdaptiveResampler, AudioFifo};
 use obsidian_clock::{sleep_until, ClockSync, SessionClock};
 use obsidian_codec::{CodecConfig, Encoder, SAMPLE_RATE};
 use obsidian_jitter::{PlayoutBuffer, PlayoutConfig};
-use obsidian_protocol::{Frame, MediaPacket, Packet};
+use obsidian_protocol::{Frame, MediaPacket, Packet, ANSWER_GRANT};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
@@ -80,7 +80,14 @@ impl LiveConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Cmd {
+    /// Off air: ask for the booth. The DJ on air can let you in or say not yet;
+    /// with no answer you go on air after [`ASK_TIMEOUT_US`]. When the partner
+    /// is off air or out of reach you go on air at once.
     TakeOver,
+    /// On air: answer the partner's ask (true = let them in now).
+    AnswerAsk(bool),
+    /// Off air: take back your ask.
+    CancelAsk,
     DeckPlayPause,
     DeckCue,
     SyncToggle,
@@ -128,6 +135,12 @@ pub struct LiveStatus {
     pub partner_volume: f32,
     /// The partner's own fader (1 = full), as they last reported it.
     pub partner_fader: f32,
+    /// You asked for the booth and are waiting: ms until you go on air anyway.
+    pub ask_ms_left: Option<u32>,
+    /// The partner asks you for the booth: ms until they go on air anyway.
+    pub partner_ask_ms_left: Option<u32>,
+    /// The partner said "not yet" to your last ask (shown for a few seconds).
+    pub ask_denied: bool,
     pub local_peak: f32,
     pub partner_peak: f32,
     pub partner_bpm: Option<f64>,
@@ -285,6 +298,10 @@ const SHIELD: [u64; 6] = [1, 2, 4, 7, 11, 16];
 const SHIELD_BURSTS: usize = 2;
 const SHIELD_WINDOW_US: i64 = 30_000_000;
 const SHIELD_OFF_US: i64 = 120_000_000;
+/// An unanswered ask for the booth goes through after this long.
+pub const ASK_TIMEOUT_US: i64 = 10_000_000;
+/// How long "not yet" stays on the asker's screen.
+const DENIED_SHOW_US: i64 = 4_000_000;
 
 struct Remote {
     pb: PlayoutBuffer,
@@ -305,6 +322,9 @@ struct Remote {
     /// The partner's own fader (1 = full).
     partner_fader: f32,
     partner_ready: bool,
+    /// The partner's ask for the booth (0 = none) and their answer to ours.
+    partner_ask: u8,
+    partner_answer: u8,
     left: bool,
 }
 
@@ -383,6 +403,8 @@ pub fn run_live(
         last_packet_us: None,
         state: None,
         partner_ready: false,
+        partner_ask: 0,
+        partner_answer: 0,
         left: false,
     }));
     let sync = Arc::new(Mutex::new(ClockSync::new(64)));
@@ -474,8 +496,12 @@ pub fn run_live(
                             name,
                             blend,
                             fader,
+                            ask,
+                            answer,
                         } => {
                             r.partner_fader = fader as f32 / 100.0;
+                            r.partner_ask = ask;
+                            r.partner_answer = answer;
                             if on_air {
                                 r.partner_blend = blend as f32 / 100.0;
                             }
@@ -560,6 +586,14 @@ pub fn run_live(
     let mut epoch: u32 = on_air as u32;
     let mut state_burst = 3u32;
     let mut ready = false;
+    // Asking for the booth: our ask's id and when we asked; the partner's ask we
+    // saw (id, when it arrived) and our answer to it.
+    let mut ask_id: u8 = 0;
+    let mut ask_seq: u8 = 0;
+    let mut ask_at: i64 = 0;
+    let mut denied_at: Option<i64> = None;
+    let mut seen_ask: Option<(u8, i64)> = None;
+    let mut answer: u8 = 0;
     let mut events: Vec<String> = Vec::new();
     let start = clock.now_us() + 20_000;
     let ev = |events: &mut Vec<String>, t: i64, s: String| {
@@ -617,11 +651,36 @@ pub fn run_live(
         j += 1;
         let fader = ctl.fader();
         let mut take_over_now = false;
+        let mut ask_now = false;
 
         // ---- commands ----
         for c in std::mem::take(&mut *ctl.cmds.lock().unwrap()) {
             match c {
-                Cmd::TakeOver => take_over_now = true,
+                Cmd::TakeOver => ask_now = true,
+                Cmd::CancelAsk => {
+                    if ask_id != 0 {
+                        ask_id = 0;
+                        state_burst = 3;
+                    }
+                }
+                Cmd::AnswerAsk(grant) => {
+                    if let Some((id, _)) = seen_ask {
+                        if on_air && answer & !ANSWER_GRANT != id {
+                            answer = id | if grant { ANSWER_GRANT } else { 0 };
+                            state_burst = 3;
+                            let who = partner_name.as_deref().unwrap_or("Partner");
+                            ev(
+                                &mut events,
+                                t,
+                                if grant {
+                                    format!("You let {who} in")
+                                } else {
+                                    format!("You told {who} not yet")
+                                },
+                            );
+                        }
+                    }
+                }
                 Cmd::SetReady(v) => {
                     if ready != v {
                         ready = v;
@@ -758,7 +817,79 @@ pub fn run_live(
                 take_over_now = true;
             }
         }
+        // ---- asking for the booth ----
+        let (p_ask, p_answer) = {
+            let r = remote.lock().unwrap();
+            (r.partner_ask, r.partner_answer)
+        };
+        let reachable = last_pkt.map(|l| t - l <= 3_000_000).unwrap_or(false);
+        if ask_now && !on_air {
+            if peer.is_none() || !partner_on_air || !reachable || left {
+                take_over_now = true;
+            } else if ask_id == 0 {
+                ask_seq = ask_seq % 127 + 1;
+                ask_id = ask_seq;
+                ask_at = t;
+                denied_at = None;
+                state_burst = 3;
+                ev(
+                    &mut events,
+                    t,
+                    format!(
+                        "You asked {} for the booth",
+                        partner_name.as_deref().unwrap_or("Partner")
+                    ),
+                );
+            }
+        }
+        if ask_id != 0 {
+            let who = partner_name.as_deref().unwrap_or("Partner").to_string();
+            if on_air || !partner_on_air || !reachable {
+                // On air some other way, or the partner went quiet: the ask is moot.
+                if !on_air && (!partner_on_air || !reachable) {
+                    take_over_now = true;
+                }
+                ask_id = 0;
+            } else if p_answer == ask_id | ANSWER_GRANT {
+                ev(&mut events, t, format!("{who} let you in"));
+                take_over_now = true;
+                ask_id = 0;
+            } else if p_answer == ask_id {
+                ev(&mut events, t, format!("{who} said not yet"));
+                denied_at = Some(t);
+                ask_id = 0;
+                state_burst = 3;
+            } else if t - ask_at >= ASK_TIMEOUT_US {
+                ev(
+                    &mut events,
+                    t,
+                    format!("No answer from {who}, going on air"),
+                );
+                take_over_now = true;
+                ask_id = 0;
+            }
+        }
+        // The partner's ask, as the DJ on air sees it.
+        if p_ask == 0 || !on_air {
+            seen_ask = None;
+        } else if seen_ask.map(|(id, _)| id) != Some(p_ask) {
+            seen_ask = Some((p_ask, t));
+            if ghost.is_some() {
+                // The practice ghost always lets you in.
+                answer = p_ask | ANSWER_GRANT;
+                state_burst = 3;
+            }
+            ev(
+                &mut events,
+                t,
+                format!(
+                    "{} asks for the booth",
+                    partner_name.as_deref().unwrap_or("Partner")
+                ),
+            );
+        }
         if take_over_now && !on_air {
+            ask_id = 0;
             epoch = epoch.max(rstate_epoch(&remote)) + 1;
             on_air = true;
             ready = false;
@@ -781,6 +912,8 @@ pub fn run_live(
                         100
                     },
                     fader: (ctl.fader() * 100.0).round().clamp(0.0, 100.0) as u8,
+                    ask: ask_id,
+                    answer,
                 }
                 .encode(&mut buf);
                 let _ = sock.send_to(&buf, peer);
@@ -1090,6 +1223,12 @@ pub fn run_live(
                 fader,
                 partner_volume: pvol,
                 partner_fader: r.partner_fader,
+                ask_ms_left: (ask_id != 0)
+                    .then(|| ((ASK_TIMEOUT_US - (t - ask_at)).max(0) / 1000) as u32),
+                partner_ask_ms_left: seen_ask
+                    .filter(|&(id, _)| answer & !ANSWER_GRANT != id)
+                    .map(|(_, at)| ((ASK_TIMEOUT_US - (t - at)).max(0) / 1000) as u32),
+                ask_denied: denied_at.map(|d| t - d < DENIED_SHOW_US).unwrap_or(false),
                 local_peak,
                 partner_peak: remote_peak,
                 partner_bpm,

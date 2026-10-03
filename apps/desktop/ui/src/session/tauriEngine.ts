@@ -16,7 +16,7 @@ import { createListeners, type Listener } from './listeners';
 import { evaluateCheck, initialRealLink, linkStateFrom, linkStateFromLive, parsePeerMessage, peakToDb, type PeerMessage } from './peer';
 import { initialRoom, normalizeCode, roomAfterRemoteReady, roomReducer, type RoomAction } from './roomReducer';
 import { sessionReducer, type SessionAction } from './sessionReducer';
-import type { LinkState, RoomState, SessionState, StereoLevel } from './types';
+import type { AskState, LinkState, RoomState, SessionState, StereoLevel } from './types';
 
 const LOCAL_ID = 'local';
 const REMOTE_ID = 'remote';
@@ -88,6 +88,17 @@ function deckInfo(st: LiveStatus): DeckInfo {
     partnerShield: st.partner_shield ?? false,
     partnerPeak: st.partner_peak,
   };
+}
+
+function askFrom(st: LiveStatus): AskState | null {
+  const secs = (ms: number | null | undefined) => (ms == null ? null : Math.ceil(ms / 1000));
+  const a: AskState = { mineSecsLeft: secs(st.ask_ms_left), theirsSecsLeft: secs(st.partner_ask_ms_left), denied: st.ask_denied ?? false };
+  return a.mineSecsLeft === null && a.theirsSecsLeft === null && !a.denied ? null : a;
+}
+
+function sameAsk(a: AskState | null, b: AskState | undefined): boolean {
+  if (!a || !b) return !a && !b;
+  return a.mineSecsLeft === b.mineSecsLeft && a.theirsSecsLeft === b.theirsSecsLeft && a.denied === b.denied;
 }
 
 function emptySession(now: number): SessionState {
@@ -367,6 +378,12 @@ export class TauriSessionEngine implements SessionEngine {
     if (this.engineLive) return void this.bridge.liveTakeOver().catch(() => {});
     if (this.beginTakeOver(LOCAL_ID)) this.send({ t: 'takeOver' });
   };
+  answerAsk = (grant: boolean) => {
+    if (this.engineLive) void this.bridge.liveAnswerAsk(grant).catch(() => {});
+  };
+  cancelAsk = () => {
+    if (this.engineLive) void this.bridge.liveCancelAsk().catch(() => {});
+  };
   emergencyTakeOver = () => {
     // Only when the live DJ is gone; the message lands if they come back.
     if (this.link.remote === 'connected') return;
@@ -642,6 +659,13 @@ export class TauriSessionEngine implements SessionEngine {
     if (st.phase === 'partner left' && this.session.status === 'live') {
       this.endSession();
       return;
+    }
+
+    // Asking for the booth: the engine keeps the clock, the screen shows whole seconds.
+    const ask = askFrom(st);
+    if (!sameAsk(ask, this.session.ask)) {
+      this.session = { ...this.session, ask: ask ?? undefined };
+      this.sessionListeners.emit();
     }
 
     // READY flags ride the engine's State packet.

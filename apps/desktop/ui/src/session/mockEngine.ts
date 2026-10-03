@@ -9,7 +9,7 @@ import { SimDeck } from './simDeck';
 import { initialRoom, normalizeCode, roomAfterRemoteReady, roomReducer, type RoomAction } from './roomReducer';
 import { sessionReducer, type SessionAction } from './sessionReducer';
 import { createListeners, type Listener } from './listeners';
-import type { AudioDevice, CheckStepId, LinkState, RoomState, SessionState, StereoLevel, TrackInfo } from './types';
+import type { AskState, AudioDevice, CheckStepId, LinkState, RoomState, SessionState, StereoLevel, TrackInfo } from './types';
 // Placeholder photos for the mock DJs.
 import valPhoto from '../assets/mock/val.jpg';
 import danaPhoto from '../assets/mock/dana.jpg';
@@ -32,6 +32,8 @@ const CRATES: Record<string, Omit<TrackInfo, 'remainingSec'>[]> = {
 
 const SILENT: StereoLevel = { left: -Infinity, right: -Infinity };
 const BPM = 124;
+/** An ask nobody answers goes through after this long (as in the engine). */
+const ASK_SECS = 10;
 
 // What a Windows booth with a USB interface might list.
 const INPUTS: AudioDevice[] = [
@@ -230,7 +232,22 @@ export class MockSessionEngine implements SessionEngine {
 
   markReady = () => this.dispatch({ type: 'markReady', djId: LOCAL_ID, atMs: Date.now() });
   cancelReady = () => this.dispatch({ type: 'cancelReady', djId: LOCAL_ID, atMs: Date.now() });
-  takeOver = () => this.beginTakeOver(LOCAL_ID);
+  // Asking for the booth, as in a live room: the demo DJ lets you in after 3 s.
+  // Practice (the Ghost DJ) hands over at once.
+  takeOver = () => {
+    const s = this.session;
+    if (s.status !== 'live' || s.handoff || s.ownerId === LOCAL_ID) return;
+    if (s.djs[REMOTE_ID].name === 'Ghost DJ' || this.link.remote !== 'connected') return this.beginTakeOver(LOCAL_ID);
+    if (s.ask?.mineSecsLeft == null) this.setAsk({ mineSecsLeft: ASK_SECS, theirsSecsLeft: null, denied: false });
+  };
+  answerAsk = (grant: boolean) => {
+    if (this.session.ask?.theirsSecsLeft == null) return;
+    this.setAsk(null);
+    if (grant) this.beginTakeOver(REMOTE_ID);
+  };
+  cancelAsk = () => {
+    if (this.session.ask?.mineSecsLeft != null) this.setAsk(null);
+  };
   emergencyTakeOver = () => {
     window.clearTimeout(this.handoffTimer);
     this.dispatch({ type: 'emergencyTakeOver', djId: LOCAL_ID, atMs: Date.now() });
@@ -248,7 +265,35 @@ export class MockSessionEngine implements SessionEngine {
 
   remoteMarkReady = () => this.dispatch({ type: 'markReady', djId: REMOTE_ID, atMs: Date.now() });
   remoteCancelReady = () => this.dispatch({ type: 'cancelReady', djId: REMOTE_ID, atMs: Date.now() });
-  remoteTakeOver = () => this.beginTakeOver(REMOTE_ID);
+  /** The demo DJ asks you for the booth (you answer, or it goes through in 10 s). */
+  remoteTakeOver = () => {
+    if (this.session.ownerId !== LOCAL_ID || this.session.handoff) return this.beginTakeOver(REMOTE_ID);
+    this.setAsk({ mineSecsLeft: null, theirsSecsLeft: ASK_SECS, denied: false });
+  };
+
+  private setAsk(ask: AskState | null) {
+    this.session = { ...this.session, ask: ask ?? undefined };
+    this.sessionListeners.emit();
+  }
+
+  /** Counts the ask down once a second; whoever waits goes on air at zero. */
+  private tickAsk() {
+    const a = this.session.ask;
+    if (!a || this.session.status !== 'live') return;
+    if (a.mineSecsLeft != null) {
+      const left = a.mineSecsLeft - 1;
+      if (ASK_SECS - left >= 3 || left <= 0) {
+        this.setAsk(null);
+        this.beginTakeOver(LOCAL_ID);
+      } else this.setAsk({ ...a, mineSecsLeft: left });
+    } else if (a.theirsSecsLeft != null) {
+      const left = a.theirsSecsLeft - 1;
+      if (left <= 0) {
+        this.setAsk(null);
+        this.beginTakeOver(REMOTE_ID);
+      } else this.setAsk({ ...a, theirsSecsLeft: left });
+    } else this.setAsk(null);
+  }
 
   simulateDropout = (seconds = 6) => {
     if (this.link.remote !== 'connected' || this.session.status !== 'live') return;
@@ -420,6 +465,7 @@ export class MockSessionEngine implements SessionEngine {
 
   private tickSecond() {
     if (this.session.status !== 'live') return;
+    this.tickAsk();
     const djs = { ...this.session.djs };
     for (const id of Object.keys(djs)) {
       const track = djs[id].track;

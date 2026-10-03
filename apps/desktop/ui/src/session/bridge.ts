@@ -84,6 +84,12 @@ export interface LiveStatus {
   shield?: boolean;
   /** The partner asked you for extra copies of yours. */
   partner_shield?: boolean;
+  /** You asked for the booth: ms until you go on air anyway. */
+  ask_ms_left?: number | null;
+  /** The partner asks you for the booth: ms until they go on air anyway. */
+  partner_ask_ms_left?: number | null;
+  /** The partner said "not yet" to your last ask. */
+  ask_denied?: boolean;
 }
 
 export interface Practice {
@@ -113,7 +119,11 @@ export const bridge = {
   selectOutput: (id: string) => invoke<void>('select_output', { id }),
   /** The countdown is over: the engine takes the connection, your input and headphones. */
   startLive: (startOnAir: boolean) => invoke<void>('start_live', { startOnAir }),
+  /** Off air: asks the DJ on air for the booth (on air at once if they're gone). */
   liveTakeOver: () => invoke<void>('live_take_over'),
+  /** On air: answer the other DJ's ask (true = let them in now). */
+  liveAnswerAsk: (grant: boolean) => invoke<void>('live_answer_ask', { grant }),
+  liveCancelAsk: () => invoke<void>('live_cancel_ask'),
   liveSetReady: (ready: boolean) => invoke<void>('live_set_ready', { ready }),
   liveSetFader: (value: number) => invoke<void>('live_set_fader', { value }),
   liveSetPartnerVolume: (value: number) => invoke<void>('live_set_partner_volume', { value }),

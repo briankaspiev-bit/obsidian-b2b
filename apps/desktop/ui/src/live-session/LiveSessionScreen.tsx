@@ -49,6 +49,24 @@ function centerStatus(s: SessionState, emergency: boolean): CenterStatus {
       belowBadge: null,
     };
   }
+  if (s.ask?.theirsSecsLeft != null && s.ownerId === s.localId) {
+    return {
+      key: 'asked',
+      main: `${remote.name.toUpperCase()} ASKS FOR THE BOOTH`,
+      sub: `Let them in, or say not yet. Goes through in ${s.ask.theirsSecsLeft}s`,
+      tone: 'ready',
+      belowBadge: null,
+    };
+  }
+  if (s.ask?.mineSecsLeft != null && s.ownerId !== s.localId) {
+    return {
+      key: 'asking',
+      main: `ASKING ${remote.name.toUpperCase()}…`,
+      sub: `${remote.name} still has the mix. You're on air in ${s.ask.mineSecsLeft}s unless they say not yet`,
+      tone: 'ready',
+      belowBadge: null,
+    };
+  }
   if (s.ownerId === s.localId) {
     // Stays put even when the other DJ is ready, so "am I live?" never needs a second look.
     const remoteReady = s.readyIds.includes(remote.id);
@@ -128,6 +146,9 @@ export function LiveSessionScreen() {
     onAction: engine.deck,
     onTakeOver: canTakeOver ? (emergency ? engine.emergencyTakeOver : engine.takeOver) : null,
     onToggleReady: live && (localRole === 'cueing' || localRole === 'ready') ? (localRole === 'ready' ? engine.cancelReady : engine.markReady) : null,
+    // SPACE lets the other DJ in and N says not yet while they ask; N takes back your own ask.
+    onAnswer: live && localRole === 'onAir' && session.ask?.theirsSecsLeft != null ? engine.answerAsk : null,
+    onCancelAsk: live && session.ask?.mineSecsLeft != null ? engine.cancelAsk : null,
   });
 
   return (
@@ -232,6 +253,9 @@ export function LiveSessionScreen() {
               emergency={emergency}
               onAirSinceMs={onAirSinceMs}
               onTakeOver={emergency ? engine.emergencyTakeOver : engine.takeOver}
+              ask={live ? session.ask : undefined}
+              onAnswer={engine.answerAsk}
+              onCancelAsk={engine.cancelAsk}
             />
           </div>
           <div className="ls-booth__under-right">

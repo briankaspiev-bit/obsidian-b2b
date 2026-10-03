@@ -512,6 +512,8 @@ fn parse_script(s: Option<&str>) -> Result<Vec<(f64, String)>> {
 fn apply(ctl: &LiveControls, ghost: Option<&LiveControls>, c: &str) {
     match c {
         "take" => ctl.send(Cmd::TakeOver),
+        "yes" => ctl.send(Cmd::AnswerAsk(true)),
+        "no" => ctl.send(Cmd::AnswerAsk(false)),
         "play" => ctl.send(Cmd::DeckPlayPause),
         "sync" => ctl.send(Cmd::SyncToggle),
         "cue" => ctl.send(Cmd::DeckCue),
@@ -651,7 +653,22 @@ fn screen(
                     }
                     match k.code {
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Char(' ') | KeyCode::Char('t') => ctl.send(Cmd::TakeOver),
+                        KeyCode::Char(' ') | KeyCode::Char('t') => {
+                            // On air while the partner asks: SPACE lets them in.
+                            let st = ctl.status();
+                            if st.on_air && st.partner_ask_ms_left.is_some() {
+                                ctl.send(Cmd::AnswerAsk(true));
+                            } else {
+                                ctl.send(Cmd::TakeOver);
+                            }
+                        }
+                        KeyCode::Char('n') => {
+                            if ctl.status().on_air {
+                                ctl.send(Cmd::AnswerAsk(false));
+                            } else {
+                                ctl.send(Cmd::CancelAsk);
+                            }
+                        }
                         KeyCode::Char('p') => ctl.send(Cmd::DeckPlayPause),
                         KeyCode::Char('s') => ctl.send(Cmd::SyncToggle),
                         KeyCode::Char('c') => ctl.send(Cmd::DeckCue),

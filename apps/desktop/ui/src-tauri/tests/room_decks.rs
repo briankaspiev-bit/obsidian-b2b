@@ -98,10 +98,18 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
     let d = st.deck.expect("deck");
     assert!(d.playing && d.sync, "Julio synced: {d:?}");
 
-    // TAKE OVER: Julio goes on air, Glizzy comes off.
+    // TAKE OVER asks for the booth (Brian's friend's notes, 2026-10-03): Julio
+    // stays off air until Glizzy, on air, lets him in.
     b.send(Cmd::TakeOver);
-    let st = wait_for(&b, 15, |s| s.on_air);
-    assert!(st.on_air, "Julio took over: {st:?}");
+    let st = wait_for(&a, 5, |s| s.partner_ask_ms_left.is_some());
+    let left = st.partner_ask_ms_left.expect("Glizzy sees Julio's ask");
+    assert!(left > 5_000 && left <= 10_000, "the ask runs 10 s: {left}");
+    let st = b.status();
+    assert!(!st.on_air && st.ask_ms_left.is_some(), "Julio waits: {st:?}");
+    a.send(Cmd::AnswerAsk(true));
+    let st = wait_for(&b, 3, |s| s.on_air);
+    assert!(st.on_air, "Julio took over once let in: {st:?}");
+    assert_eq!(st.ask_ms_left, None);
     let st = wait_for(&a, 15, |s| !s.on_air && s.partner_on_air);
     assert!(
         !st.on_air && st.partner_on_air,
@@ -172,8 +180,20 @@ fn without_a_mixer_both_djs_mix_on_the_built_in_decks() {
     );
     a.set_fader(0.8);
     thread::sleep(Duration::from_millis(500));
+    // Glizzy asks; Julio says not yet, and Glizzy stays off air.
+    a.send(Cmd::TakeOver);
+    wait_for(&b, 5, |s| s.partner_ask_ms_left.is_some());
+    b.send(Cmd::AnswerAsk(false));
+    let st = wait_for(&a, 5, |s| s.ask_denied);
+    assert!(st.ask_denied && !st.on_air && st.ask_ms_left.is_none(), "not yet: {st:?}");
+    thread::sleep(Duration::from_millis(500));
+    assert!(b.status().on_air && b.status().partner_ask_ms_left.is_none());
+    // He asks again and nobody answers: after 10 s he goes on air anyway.
+    let asked = Instant::now();
     a.send(Cmd::TakeOver);
     let st = wait_for(&a, 15, |s| s.on_air && s.fader < 0.8);
+    let waited = asked.elapsed().as_secs_f64();
+    assert!((9.5..12.0).contains(&waited), "unanswered ask went through after {waited:.1} s");
     assert!(st.on_air, "Glizzy took it back: {st:?}");
     assert!(
         (st.fader - 0.4).abs() < 0.02,

@@ -67,6 +67,21 @@ export interface SessionState {
   readyIds: DjId[];
   handoff: HandoffState | null;
   events: SessionEvent[];
+  /** Asking for the booth (live rooms only). */
+  ask?: AskState;
+}
+
+/**
+ * Asking for the booth: the DJ off air asks, the DJ on air lets them in or says
+ * not yet, and an ask nobody answers goes through after 10 s.
+ */
+export interface AskState {
+  /** You asked: whole seconds until you go on air anyway. */
+  mineSecsLeft: number | null;
+  /** The other DJ asks you: whole seconds until they go on air anyway. */
+  theirsSecsLeft: number | null;
+  /** The other DJ just said not yet. */
+  denied: boolean;
 }
 
 export type RemoteConnection = 'connected' | 'reconnecting' | 'left';

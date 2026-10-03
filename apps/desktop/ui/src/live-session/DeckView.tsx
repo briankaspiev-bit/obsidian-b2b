@@ -435,7 +435,16 @@ export function DeckView({ feed, partnerName, partnerRole, youRole, onAction }: 
           </div>
         )}
         <p className="deck__hint">
-          <Key k="SPACE" /> take over · <Key k="R" /> ready · scroll on your waveform to nudge
+          {info?.onAir ? (
+            <>
+              When {partnerName} asks for the booth: <Key k="SPACE" /> let them in · <Key k="N" /> not yet
+            </>
+          ) : (
+            <>
+              <Key k="SPACE" /> ask for the booth · <Key k="R" /> ready
+            </>
+          )}{' '}
+          · scroll on your waveform to nudge
         </p>
       </div>
     </section>

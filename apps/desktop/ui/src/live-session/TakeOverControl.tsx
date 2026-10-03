@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { BoothRole } from '../session/types';
+import type { AskState, BoothRole } from '../session/types';
 import { formatClock } from '../lib/format';
 
 /** How long the DJ holds TAKE OVER before it fires. Deliberate, not slow. */
@@ -20,9 +20,28 @@ interface Props {
   /** When the local DJ went on air; shown as a running clock on the button. */
   onAirSinceMs?: number | null;
   onTakeOver: () => void;
+  /** Asking for the booth, in a live room. */
+  ask?: AskState;
+  /** On air: answer the other DJ's ask. */
+  onAnswer?: (grant: boolean) => void;
+  /** Off air: take back your ask. */
+  onCancelAsk?: () => void;
 }
 
-export function TakeOverControl({ localRole, remoteName, remoteCity, remoteReady, handoffTo, enabled, emergency = false, onAirSinceMs = null, onTakeOver }: Props) {
+export function TakeOverControl({
+  localRole,
+  remoteName,
+  remoteCity,
+  remoteReady,
+  handoffTo,
+  enabled,
+  emergency = false,
+  onAirSinceMs = null,
+  onTakeOver,
+  ask,
+  onAnswer,
+  onCancelAsk,
+}: Props) {
   const [progress, setProgress] = useState(0);
   const raf = useRef<number | null>(null);
   const startedAt = useRef(0);
@@ -60,23 +79,38 @@ export function TakeOverControl({ localRole, remoteName, remoteCity, remoteReady
     if (!enabled) cancel();
   }, [enabled, cancel]);
 
+  let mode: 'take' | 'onAir' | 'handoff' | 'emergency' | 'asking' | 'asked' = 'take';
+  if (handoffTo) mode = 'handoff';
+  else if (emergency && enabled) mode = 'emergency';
+  else if (localRole === 'onAir') mode = ask?.theirsSecsLeft != null && onAnswer ? 'asked' : 'onAir';
+  else if (ask?.mineSecsLeft != null) mode = 'asking';
+
+  // Answering or taking back an ask is one tap; only asking needs the hold.
+  const press = () => {
+    if (mode === 'asked') onAnswer?.(true);
+    else if (mode === 'asking') onCancelAsk?.();
+    else start();
+  };
+  const active = enabled || mode === 'asked' || (mode === 'asking' && !!onCancelAsk);
+
   const onKeyDown = (e: KeyboardEvent) => {
     if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
       e.preventDefault();
-      start();
+      press();
     }
   };
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.key === ' ' || e.key === 'Enter') cancel();
   };
 
-  let mode: 'take' | 'onAir' | 'handoff' | 'emergency' = 'take';
-  if (handoffTo) mode = 'handoff';
-  else if (emergency && enabled) mode = 'emergency';
-  else if (localRole === 'onAir') mode = 'onAir';
-
   const caption =
-    mode === 'onAir'
+    mode === 'asked'
+      ? `${remoteName} asks for the booth. Goes through in ${ask?.theirsSecsLeft}s`
+      : mode === 'asking'
+        ? `Asked ${remoteName}. On air in ${ask?.mineSecsLeft}s unless they say not yet. Tap to take it back`
+        : mode === 'take' && ask?.denied
+          ? `${remoteName} said not yet. Hold to ask again`
+          : mode === 'onAir'
       ? remoteReady
         ? `${remoteName} is ready to take over`
         : `${remoteName} takes over from ${remoteCity}`
@@ -86,25 +120,29 @@ export function TakeOverControl({ localRole, remoteName, remoteCity, remoteReady
         ? handoffTo === 'local'
           ? 'Passing the decks to you'
           : `Passing the decks to ${remoteName}`
-        : 'Press and hold to take the mix';
+        : 'Press and hold to ask for the booth';
 
   return (
     <div className="takeover" data-mode={mode} data-remote-ready={(mode === 'onAir' && remoteReady) || undefined}>
       <button
         type="button"
         className="takeover__button"
-        disabled={!enabled}
+        disabled={!active}
         aria-describedby="takeover-caption"
         aria-label={
           mode === 'take'
-            ? 'Take over the mix. Press and hold.'
+            ? 'Ask for the booth. Press and hold.'
             : mode === 'emergency'
               ? 'Take over the mix now. Tap once.'
-              : undefined
+              : mode === 'asked'
+                ? `Let ${remoteName} take over now.`
+                : mode === 'asking'
+                  ? 'Take back your ask.'
+                  : undefined
         }
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
-          start();
+          press();
         }}
         onPointerUp={cancel}
         onPointerCancel={cancel}
@@ -134,11 +172,24 @@ export function TakeOverControl({ localRole, remoteName, remoteCity, remoteReady
                 <br />
                 NOW
               </>
-            ) : mode === 'onAir' ? 'ON AIR' : 'HANDOFF'}
+            ) : mode === 'onAir' ? 'ON AIR' : mode === 'asked' ? (
+              <>
+                LET THEM
+                <br />
+                IN
+              </>
+            ) : mode === 'asking' ? 'ASKING' : 'HANDOFF'}
           </span>
           {mode === 'onAir' && onAirSinceMs !== null && <OnAirClock sinceMs={onAirSinceMs} />}
+          {mode === 'asked' && <span className="takeover__clock">{ask?.theirsSecsLeft}s</span>}
+          {mode === 'asking' && <span className="takeover__clock">{ask?.mineSecsLeft}s</span>}
         </span>
       </button>
+      {mode === 'asked' && onAnswer && (
+        <button type="button" className="takeover__not-yet" onClick={() => onAnswer(false)}>
+          NOT YET <kbd>N</kbd>
+        </button>
+      )}
 
       <p id="takeover-caption" className="takeover__caption">
         <span key={caption} className="fade-in">
