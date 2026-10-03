@@ -38,15 +38,23 @@ fn entries(names: Vec<String>, default: Option<String>) -> Vec<AudioDevice> {
         .into_iter()
         .map(|n| {
             let is_default = Some(&n) == default.as_ref();
+            // Realtek laptops name the headphone jack "... 2nd output".
+            let jack = n.to_lowercase().contains("2nd output");
+            let detail = match (is_default, jack) {
+                (true, true) => "System default · Usually the headphone jack",
+                (true, false) => "System default",
+                (false, true) => "Usually the headphone jack",
+                (false, false) => "",
+            };
             AudioDevice {
                 id: n.clone(),
                 label: n,
-                detail: if is_default { "System default".into() } else { String::new() },
+                detail: detail.into(),
             }
         })
         .collect();
     // Default first, so the UI's "first device" default is the system one.
-    v.sort_by_key(|d| d.detail.is_empty());
+    v.sort_by_key(|d| !d.detail.starts_with("System default"));
     v
 }
 
@@ -265,6 +273,13 @@ mod tests {
         let v = entries(vec!["A".into(), "B".into()], Some("B".into()));
         assert_eq!(v[0].id, "B");
         assert_eq!(v[0].detail, "System default");
+        // The headphone jack is labelled but doesn't jump ahead of the default.
+        let v = entries(
+            vec!["Realtek HD Audio 2nd output".into(), "Speakers (Realtek(R) Audio)".into()],
+            Some("Speakers (Realtek(R) Audio)".into()),
+        );
+        assert_eq!(v[0].label, "Speakers (Realtek(R) Audio)");
+        assert_eq!(v[1].detail, "Usually the headphone jack");
     }
 
     #[test]

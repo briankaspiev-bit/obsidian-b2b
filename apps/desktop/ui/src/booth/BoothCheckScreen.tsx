@@ -15,6 +15,8 @@ export function BoothCheckScreen() {
   const room = useRoomState();
   const remoteName = room.remote?.name ?? 'the other DJ';
   const waiting = room.remotePresence === 'waiting';
+  // No mixer: the built-in deck and the other DJ both play on the one output.
+  const testMusic = room.inputId?.startsWith('test-music') ?? false;
 
   return (
     <div className="booth">
@@ -52,8 +54,12 @@ export function BoothCheckScreen() {
             />
             <DeviceField
               id="output"
-              label={`Where you hear ${remoteName}`}
-              hint="A monitor or a spare mixer channel"
+              label={testMusic ? 'Where you listen' : `Where you hear ${remoteName}`}
+              hint={
+                testMusic
+                  ? `Your headphones or speakers. You hear your music and ${remoteName} here, mixed.`
+                  : 'A monitor or a spare mixer channel'
+              }
               devices={room.outputs}
               value={room.outputId}
               onChange={engine.selectOutput}
