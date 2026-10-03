@@ -61,7 +61,9 @@ export function evaluateCheck(
       { id: 'sync', status: 'attention', result: 'Not measured' },
     ];
   }
-  const shaky = net.rttMs > 150 || net.lossPct > 2 || net.jitterMs > 30;
+  const slow = net.rttMs > 150 || net.lossPct > 2;
+  // Fast and clean but uneven timing: typical Wi-Fi. A warning, not a blocker.
+  const uneven = !slow && net.jitterMs > 30;
   return [
     {
       id: 'network',
@@ -70,10 +72,12 @@ export function evaluateCheck(
     },
     {
       id: 'roundTrip',
-      status: shaky ? 'attention' : 'ok',
-      result: shaky
+      status: slow || uneven ? 'attention' : 'ok',
+      result: slow
         ? `${ms(net.rttMs)}, ${net.lossPct.toFixed(1)}% lost. Try Ethernet`
-        : `${ms(net.rttMs)} round trip, ${net.lossPct.toFixed(1)}% lost`,
+        : uneven
+          ? `${ms(net.rttMs)}, ${net.lossPct.toFixed(1)}% lost. Wi-Fi is uneven, Ethernet is better`
+          : `${ms(net.rttMs)} round trip, ${net.lossPct.toFixed(1)}% lost`,
     },
     sendStep(localPeakDb, inputLabel),
     remotePeakDb > SIGNAL_FLOOR_DB
@@ -88,7 +92,7 @@ export function evaluateCheck(
 function sendStep(localPeakDb: number, inputLabel: string): CheckOutcome {
   return localPeakDb > SIGNAL_FLOOR_DB
     ? { id: 'send', status: 'ok', result: `Signal from ${inputLabel}` }
-    : { id: 'send', status: 'attention', result: 'No signal. Play something' };
+    : { id: 'send', status: 'attention', result: 'No signal. No mixer? Pick Test music' };
 }
 
 export function networkQuality(s: Pick<LinkStatus, 'rttMs' | 'jitterMs' | 'lossPct'>): NetworkQuality {

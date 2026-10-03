@@ -41,6 +41,19 @@ export function freshCheck(): BoothCheck {
   };
 }
 
+/** Steps that must be green before going live: without them there is no session. */
+const BLOCKING: CheckStepId[] = ['network', 'sync'];
+
+/**
+ * Ready is allowed once the check finished and the booths are connected with
+ * matched clocks. Yellow round trip, mixer or partner-audio steps are warnings:
+ * a tester with no mixer, or on Wi-Fi, can still go live.
+ */
+export function readyAllowed(check: BoothCheck): boolean {
+  if (check.status !== 'passed' && check.status !== 'attention') return false;
+  return check.steps.every((st) => !BLOCKING.includes(st.id) || st.status === 'ok');
+}
+
 export function initialRoom(local: RoomState['local']): RoomState {
   return {
     phase: 'home',
@@ -73,7 +86,8 @@ function withCountdown(s: RoomState, atMs: number, countdownMs: number): RoomSta
 
 /**
  * Pure room state machine for Home and Booth Check. Readiness rules:
- * you can only press ready once your booth check passed, and changing a
+ * you can only press ready once your booth check connected the booths
+ * (see readyAllowed), and changing a
  * device or the other DJ leaving puts you back to not-ready.
  */
 export function roomReducer(s: RoomState, a: RoomAction): RoomState {
@@ -132,7 +146,7 @@ export function roomReducer(s: RoomState, a: RoomAction): RoomState {
       return { ...s, check: { status, steps } };
     }
     case 'setReady': {
-      if (a.ready && s.check.status !== 'passed') return s;
+      if (a.ready && !readyAllowed(s.check)) return s;
       if (!a.ready) return { ...s, localReady: false, startsAtMs: null };
       return withCountdown({ ...s, localReady: true }, a.atMs, a.countdownMs);
     }

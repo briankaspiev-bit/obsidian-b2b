@@ -2525,6 +2525,7 @@ dependencies = [
  "obsidian-jitter",
  "obsidian-netem-proxy",
  "obsidian-protocol",
+ "obsidian-rendezvous",
  "obsidian-testaudio",
  "rand",
  "serde",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { initialRoom, normalizeCode, roomAfterRemoteReady, roomReducer, type RoomAction } from './roomReducer';
+import { initialRoom, normalizeCode, readyAllowed, roomAfterRemoteReady, roomReducer, type RoomAction } from './roomReducer';
 import type { RoomState } from './types';
 
 const run = (s: RoomState, ...actions: RoomAction[]) => actions.reduce(roomReducer, s);
@@ -77,6 +77,20 @@ describe('roomReducer', () => {
       result: 'Drifting',
     });
     expect(s.check.status).toBe('attention');
+    expect(readyAllowed(s.check)).toBe(false);
+    expect(run(s, { type: 'setReady', ready: true, atMs: 0, countdownMs: 3000 }).localReady).toBe(false);
+  });
+
+  it('lets you go live without a mixer or on Wi-Fi once the booths are connected', () => {
+    const warn = (id: 'roundTrip' | 'send' | 'receive'): RoomAction => ({ type: 'checkStep', id, status: 'attention', result: 'x' });
+    const ok = (id: 'network' | 'sync'): RoomAction => ({ type: 'checkStep', id, status: 'ok' });
+    let s = run(inBooth(), { type: 'checkStarted' }, ok('network'), warn('roundTrip'), warn('send'), warn('receive'));
+    expect(readyAllowed(s.check)).toBe(false); // still checking
+    s = run(s, ok('sync'));
+    expect(s.check.status).toBe('attention');
+    expect(readyAllowed(s.check)).toBe(true);
+    s = run(s, { type: 'setReady', ready: true, atMs: 0, countdownMs: 3000 });
+    expect(s.localReady).toBe(true);
   });
 
   it('learning more about the other DJ keeps their readiness', () => {
