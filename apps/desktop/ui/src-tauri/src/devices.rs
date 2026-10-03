@@ -279,10 +279,13 @@ mod tests {
         assert_eq!(list.inputs[0].id, TEST_MUSIC[0].0, "test music is the default input");
         for (id, _) in TEST_MUSIC {
             assert!(list.inputs.iter().any(|d| d.id == id), "{id} offered");
+            let t0 = std::time::Instant::now();
             let c = open_input(id).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(500));
-            let frames = c.fifo.len_frames();
-            assert!((19_000..=30_000).contains(&frames), "{id}: {frames} frames in 0.5 s");
+            // Timed, not assumed: a busy CI runner can oversleep.
+            let (frames, secs) = (c.fifo.len_frames(), t0.elapsed().as_secs_f64());
+            let rate = frames as f64 / secs;
+            assert!((36_000.0..=60_000.0).contains(&rate), "{id}: {frames} frames in {secs:.2} s");
             assert!(c.level_dbfs() > -30.0, "{id}: level {}", c.level_dbfs());
         }
     }
