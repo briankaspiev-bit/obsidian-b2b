@@ -35,7 +35,7 @@ export function freshCheck(): BoothCheck {
     steps: [
       { id: 'network', label: 'Connection to the other booth', status: 'pending', result: null },
       { id: 'roundTrip', label: 'Round trip', status: 'pending', result: null },
-      { id: 'send', label: 'Your mixer is coming through', status: 'pending', result: null },
+      { id: 'send', label: 'Your music is going out', status: 'pending', result: null },
       { id: 'receive', label: 'You can hear the other DJ', status: 'pending', result: null },
       { id: 'sync', label: 'Booth Sync', status: 'pending', result: null },
     ],

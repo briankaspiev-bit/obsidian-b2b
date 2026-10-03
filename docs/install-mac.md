@@ -61,6 +61,8 @@ works on Windows for now.
 app puts its built-in music on a deck you mix like in Practice: **P** play, **S**
 sync, **↑↓** your volume, **←→** the other DJ in your ears, **Space** to take over.
 
+Then follow **[Your first room, no gear needed](first-room.md)**.
+
 ## Updating
 
 Download the new dmg from the same page, drag it into Applications again, and choose

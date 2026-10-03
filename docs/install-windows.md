@@ -55,6 +55,8 @@ For the test programs (the zip):
 
 For the desktop app (the installer): double-click it, follow the steps, then open **Obsidian B2B** from the Start menu.
 
+Then follow **[Your first room, no gear needed](first-room.md)**.
+
 ## Updating
 
 Download again from the same page and repeat. Each new build replaces the old one on that page.
