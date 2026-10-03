@@ -1,0 +1,92 @@
+name: mac
+
+# Builds the desktop app for macOS as one universal app (Apple-chip and Intel Macs),
+# and keeps a public download link fresh on every merge to main:
+# https://github.com/<owner>/<repo>/releases/tag/mac-build
+#
+# The app is ad-hoc signed, not notarized (that needs a paid Apple developer account),
+# so macOS asks the tester to confirm the first launch. Steps: docs/install-mac.md.
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/desktop/**", "crates/**", "Cargo.toml", "Cargo.lock", "services/rendezvous/**", ".github/workflows/mac.yml"]
+  pull_request:
+    paths: ["apps/desktop/**", "crates/**", "Cargo.toml", "Cargo.lock", "services/rendezvous/**", ".github/workflows/mac.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Mac app
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/desktop/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/ui/src-tauri
+      - run: npm ci
+      - name: Rust tests on a Mac (devices, booth link, practice, room server)
+        working-directory: apps/desktop/ui/src-tauri
+        run: cargo test
+      - name: Build the universal app
+        env:
+          # The room server baked into the app (repository variable).
+          OBSIDIAN_DEFAULT_SERVER: ${{ vars.OBSIDIAN_SERVER }}
+        run: npx tauri build --target universal-apple-darwin --bundles dmg
+      - name: Check the app runs on both kinds of Mac
+        working-directory: apps/desktop/ui/src-tauri/target/universal-apple-darwin/release/bundle
+        run: |
+          app=$(ls -d macos/*.app | head -1)
+          bin="$app/Contents/MacOS/$(defaults read "$PWD/$app/Contents/Info" CFBundleExecutable)"
+          lipo -archs "$bin" | tee /dev/stderr | grep -q 'x86_64 arm64'
+          codesign --verify --verbose "$app"
+          plutil -extract NSMicrophoneUsageDescription raw "$app/Contents/Info.plist"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp dmg/*.dmg "$GITHUB_WORKSPACE/dist/Obsidian-mac.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-mac
+          path: dist/Obsidian-mac.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Update the Mac download page
+    needs: app
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Obsidian-mac
+          path: dist
+      - name: Replace the mac-build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete mac-build --cleanup-tag --yes || true
+          gh release create mac-build dist/Obsidian-mac.dmg \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Obsidian B2B for Mac (latest test build)" \
+            --notes "Built from ${GITHUB_SHA::7} on main. Runs on Apple-chip and Intel Macs (macOS 11 or newer). Unsigned test build: macOS will ask you to confirm the first launch. Install steps: https://github.com/${GH_REPO}/blob/main/docs/install-mac.md"

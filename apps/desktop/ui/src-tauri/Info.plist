@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS asks the DJ before Obsidian can hear their mixer or audio interface. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Obsidian listens to your mixer or audio interface so the other DJ can hear your set.</string>
+  <!-- Asked only if the other DJ is on the same home network. -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Obsidian connects straight to the other DJ when you are on the same network.</string>
+</dict>
+</plist>
